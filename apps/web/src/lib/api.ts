@@ -6,12 +6,14 @@ import type {
   HierarchyNode,
   HistogramBucket,
   HostMountsResponse,
+  ImageInfo,
   MountInfo,
   NodeKind,
   NodeRecord,
   ScanProgress,
   ScanSummary,
   TilesResponse,
+  VolumeInfo,
 } from "@scanscan/api-types";
 
 const BASE = "/api/v1";
@@ -321,8 +323,19 @@ export async function getDockerContainers(): Promise<ContainerInfo[]> {
   return body.containers;
 }
 
-export async function getDockerMounts(): Promise<MountInfo[]> {
-  const body = await request<{ mounts: MountInfo[] }>("/docker/mounts");
+export async function getDockerImages(): Promise<ImageInfo[]> {
+  const body = await request<{ images: ImageInfo[] }>("/docker/images");
+  return body.images;
+}
+
+export async function getDockerVolumes(): Promise<VolumeInfo[]> {
+  const body = await request<{ volumes: VolumeInfo[] }>("/docker/volumes");
+  return body.volumes;
+}
+
+export async function getDockerMounts(scanId?: string): Promise<MountInfo[]> {
+  const suffix = scanId === undefined ? "" : `?scan=${encodeURIComponent(scanId)}`;
+  const body = await request<{ mounts: MountInfo[] }>(`/docker/mounts${suffix}`);
   return body.mounts;
 }
 

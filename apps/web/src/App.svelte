@@ -547,7 +547,10 @@
           <span class="muted">read-only</span>
         </div>
         <div class="view-host">
-          <DockerPanel />
+          <DockerPanel
+            scanId={selectedId ?? undefined}
+            onreveal={(nodeId) => (scopeId = nodeId)}
+          />
         </div>
       </section>
     </main>

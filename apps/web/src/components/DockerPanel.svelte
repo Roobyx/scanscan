@@ -1,31 +1,73 @@
 <script lang="ts">
-  import type { ContainerInfo, DockerStats, MountInfo } from "@scanscan/api-types";
+  import type {
+    ContainerInfo,
+    DockerStats,
+    ImageInfo,
+    MountInfo,
+    VolumeInfo,
+  } from "@scanscan/api-types";
   import { onMount } from "svelte";
 
-  import { errorMessage, getDockerContainers, getDockerMounts, getDockerStats } from "../lib/api.js";
+  import {
+    errorMessage,
+    getDockerContainers,
+    getDockerImages,
+    getDockerMounts,
+    getDockerStats,
+    getDockerVolumes,
+  } from "../lib/api.js";
   import { formatBytes, percent } from "../lib/format.js";
 
+  interface Props {
+    scanId?: string;
+    onreveal?: (nodeId: number) => void;
+  }
+
+  let { scanId, onreveal }: Props = $props();
+
   let containers = $state<ContainerInfo[]>([]);
+  let images = $state<ImageInfo[]>([]);
+  let volumes = $state<VolumeInfo[]>([]);
   let mounts = $state<MountInfo[]>([]);
   let stats = $state<DockerStats[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let timer: ReturnType<typeof setInterval> | null = null;
 
+  const sortedImages = $derived([...images].sort((a, b) => b.size - a.size));
+  const sortedVolumes = $derived(
+    [...volumes].sort((a, b) => (b.size ?? -1) - (a.size ?? -1)),
+  );
+  const isEmpty = $derived(
+    containers.length === 0 && images.length === 0 && volumes.length === 0 && mounts.length === 0,
+  );
+
   function mountKey(mount: MountInfo): string {
     return `${mount.containerId}:${mount.destination}:${mount.source}`;
   }
 
-  async function loadInitial(): Promise<void> {
+  function repoLabel(image: ImageInfo): string {
+    return image.repoTags.length > 0 ? image.repoTags.join(", ") : "<none>";
+  }
+
+  function reveal(mount: MountInfo): void {
+    if (mount.node !== undefined) onreveal?.(mount.node);
+  }
+
+  async function loadInitial(id: string | undefined): Promise<void> {
     loading = true;
     error = null;
     try {
-      const [nextContainers, nextMounts, nextStats] = await Promise.all([
+      const [nextContainers, nextImages, nextVolumes, nextMounts, nextStats] = await Promise.all([
         getDockerContainers(),
-        getDockerMounts(),
+        getDockerImages(),
+        getDockerVolumes(),
+        getDockerMounts(id),
         getDockerStats(),
       ]);
       containers = nextContainers;
+      images = nextImages;
+      volumes = nextVolumes;
       mounts = nextMounts;
       stats = nextStats;
     } catch (cause) {
@@ -44,7 +86,6 @@
   }
 
   onMount(() => {
-    void loadInitial();
     timer = setInterval(() => {
       void pollStats();
     }, 2000);
@@ -52,36 +93,42 @@
       if (timer !== null) clearInterval(timer);
     };
   });
+
+  $effect(() => {
+    void loadInitial(scanId);
+  });
 </script>
 
 <div class="docker">
-  {#if loading && containers.length === 0}
-    <p class="state">Loading Docker…</p>
-  {:else if error}
+  {#if error}
     <p class="state err" role="alert">{error}</p>
-  {:else if containers.length === 0}
-    <p class="state">No containers found. Docker may be unavailable.</p>
+  {:else if loading && isEmpty}
+    <p class="state">Loading Docker…</p>
   {:else}
     <section class="block">
       <h3>Containers <span class="muted">{containers.length}</span></h3>
-      <div class="cards">
-        {#each containers as container (container.id)}
-          <article class="card">
-            <header>
-              <span class="name" title={container.name}>{container.name}</span>
-              <span class="state-pill" class:running={container.state === "running"}>
-                {container.state}
-              </span>
-            </header>
-            <p class="image" title={container.image}>{container.image}</p>
-            <dl>
-              <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
-              <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
-              <div><dt>Mounts</dt><dd>{container.mounts.length}</dd></div>
-            </dl>
-          </article>
-        {/each}
-      </div>
+      {#if containers.length === 0}
+        <p class="muted small">No containers found. Docker may be unavailable.</p>
+      {:else}
+        <div class="cards">
+          {#each containers as container (container.id)}
+            <article class="card">
+              <header>
+                <span class="name" title={container.name}>{container.name}</span>
+                <span class="state-pill" class:running={container.state === "running"}>
+                  {container.state}
+                </span>
+              </header>
+              <p class="image" title={container.image}>{container.image}</p>
+              <dl>
+                <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
+                <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
+                <div><dt>Mounts</dt><dd>{container.mounts.length}</dd></div>
+              </dl>
+            </article>
+          {/each}
+        </div>
+      {/if}
     </section>
 
     <section class="block">
@@ -120,6 +167,66 @@
     </section>
 
     <section class="block">
+      <h3>Images <span class="muted">{images.length}</span></h3>
+      {#if images.length === 0}
+        <p class="muted small">No images reported.</p>
+      {:else}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Repository</th>
+                <th class="num">Size</th>
+                <th class="num">Shared</th>
+                <th class="num">Containers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each sortedImages as image (image.id)}
+                <tr>
+                  <td class="ellipsis" title={repoLabel(image)}>{repoLabel(image)}</td>
+                  <td class="num">{formatBytes(image.size)}</td>
+                  <td class="num">{formatBytes(image.sharedSize)}</td>
+                  <td class="num">{image.containers}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </section>
+
+    <section class="block">
+      <h3>Volumes <span class="muted">{volumes.length}</span></h3>
+      {#if volumes.length === 0}
+        <p class="muted small">No volumes reported.</p>
+      {:else}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Driver</th>
+                <th class="num">Size</th>
+                <th class="num">Refs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each sortedVolumes as volume (volume.name)}
+                <tr>
+                  <td class="ellipsis" title={volume.name}>{volume.name}</td>
+                  <td>{volume.driver}</td>
+                  <td class="num">{volume.size === undefined ? "—" : formatBytes(volume.size)}</td>
+                  <td class="num">{volume.refCount === undefined ? "—" : volume.refCount}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </section>
+
+    <section class="block">
       <h3>Mounts <span class="muted">{mounts.length}</span></h3>
       {#if mounts.length === 0}
         <p class="muted small">No mounts reported.</p>
@@ -130,9 +237,9 @@
               <tr>
                 <th>Container</th>
                 <th>Kind</th>
-                <th>Source</th>
-                <th>Destination</th>
+                <th>Source → Destination</th>
                 <th>Mode</th>
+                <th class="num">Node</th>
                 <th class="num">Size</th>
               </tr>
             </thead>
@@ -141,9 +248,26 @@
                 <tr>
                   <td class="ellipsis" title={mount.containerName}>{mount.containerName}</td>
                   <td>{mount.kind}</td>
-                  <td class="ellipsis" title={mount.source}>{mount.source}</td>
-                  <td class="ellipsis" title={mount.destination}>{mount.destination}</td>
+                  <td class="ellipsis" title="{mount.source} → {mount.destination}">
+                    <span class="src">{mount.source}</span>
+                    <span class="arrow" aria-hidden="true">→</span>
+                    <span class="dst">{mount.destination}</span>
+                  </td>
                   <td>{mount.readWrite ? "rw" : "ro"}</td>
+                  <td class="num">
+                    {#if mount.node !== undefined}
+                      <button
+                        type="button"
+                        class="node-link"
+                        title="Reveal node #{mount.node}"
+                        onclick={() => reveal(mount)}
+                      >
+                        {mount.node}
+                      </button>
+                    {:else}
+                      —
+                    {/if}
+                  </td>
                   <td class="num">{mount.size === undefined ? "—" : formatBytes(mount.size)}</td>
                 </tr>
               {/each}
@@ -176,6 +300,10 @@
     font-size: 0.8rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+  }
+
+  .muted {
+    color: var(--muted);
   }
 
   .small {
@@ -349,6 +477,32 @@
   td.num {
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  .src,
+  .dst {
+    color: var(--text);
+  }
+
+  .arrow {
+    margin: 0 0.35rem;
+    color: var(--muted);
+  }
+
+  .node-link {
+    padding: 0.05rem 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+
+  .node-link:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   .state {

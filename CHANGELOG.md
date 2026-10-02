@@ -2,6 +2,15 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.5.0] - 2026-10-02
+
+### Added
+- Docker image and volume sizes: `docker.images` / `GET /api/v1/docker/images` and `docker.volumes`
+  / `GET /api/v1/docker/volumes`, shown in the Docker panel as images and volumes tables.
+- Mount → index correlation: `docker.mountsFor` / `GET /api/v1/docker/mounts?scan=<id>` resolves
+  each container mount's host path to a snapshot node (with subtree bytes). The Docker panel shows
+  the node and clicking it drills the dashboard to that path.
+
 ## [1.4.0] - 2026-10-02
 
 ### Added
