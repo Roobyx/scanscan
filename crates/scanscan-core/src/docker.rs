@@ -4,8 +4,6 @@
 //! unreadable the collector reports `available: false` and the rest of
 //! scanscan keeps working.
 
-use std::path::{Path, PathBuf};
-
 use serde::Serialize;
 use serde_json::Value;
 
@@ -22,39 +20,32 @@ pub struct DockerStatus {
     pub error: Option<String>,
 }
 
-/// Read-only collector bound to a Docker socket path.
+/// Read-only collector bound to a Docker endpoint (`/path`, `unix://…` or `tcp://host:port`).
 pub struct DockerCollector {
-    socket: PathBuf,
+    target: String,
 }
 
 impl DockerCollector {
-    pub fn new(socket: impl Into<PathBuf>) -> Self {
+    pub fn new(target: impl Into<String>) -> Self {
         Self {
-            socket: socket.into(),
+            target: target.into(),
         }
     }
 
-    pub fn socket(&self) -> &Path {
-        &self.socket
+    pub fn target(&self) -> &str {
+        &self.target
     }
 
     pub fn status(&self) -> DockerStatus {
-        if !self.socket.exists() {
-            return DockerStatus {
-                available: false,
-                socket: self.socket.to_string_lossy().into_owned(),
-                error: Some("docker socket not found".into()),
-            };
-        }
         match self.get("/version") {
             Ok(_) => DockerStatus {
                 available: true,
-                socket: self.socket.to_string_lossy().into_owned(),
+                socket: self.target.clone(),
                 error: None,
             },
             Err(e) => DockerStatus {
                 available: false,
-                socket: self.socket.to_string_lossy().into_owned(),
+                socket: self.target.clone(),
                 error: Some(e.to_string()),
             },
         }
@@ -107,17 +98,9 @@ impl DockerCollector {
         Ok(out)
     }
 
-    #[cfg(unix)]
     fn get(&self, path: &str) -> Result<Value> {
-        let body = http_get(&self.socket, path)?;
+        let body = http_get(&self.target, path)?;
         serde_json::from_slice(&body).map_err(CoreError::from)
-    }
-
-    #[cfg(not(unix))]
-    fn get(&self, _path: &str) -> Result<Value> {
-        Err(CoreError::Scan(
-            "docker integration requires a unix socket".into(),
-        ))
     }
 }
 
@@ -231,12 +214,31 @@ fn parse_stats(id: &str, name: &str, sample: &Value) -> DockerStats {
     }
 }
 
-#[cfg(unix)]
-fn http_get(socket: &Path, path: &str) -> Result<Vec<u8>> {
-    use std::io::{Read, Write};
-    use std::os::unix::net::UnixStream;
+fn http_get(target: &str, path: &str) -> Result<Vec<u8>> {
+    if let Some(addr) = target
+        .strip_prefix("tcp://")
+        .or_else(|| target.strip_prefix("http://"))
+    {
+        let stream = std::net::TcpStream::connect(addr)?;
+        return http_request(stream, path);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::net::UnixStream;
+        let path_only = target.strip_prefix("unix://").unwrap_or(target);
+        let stream = UnixStream::connect(path_only)?;
+        http_request(stream, path)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(CoreError::Scan(
+            "unix docker sockets are unsupported on this platform".into(),
+        ))
+    }
+}
 
-    let mut stream = UnixStream::connect(socket)?;
+fn http_request<S: std::io::Read + std::io::Write>(mut stream: S, path: &str) -> Result<Vec<u8>> {
     let request = format!(
         "GET {path} HTTP/1.1\r\nHost: docker\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
@@ -258,7 +260,6 @@ fn http_get(socket: &Path, path: &str) -> Result<Vec<u8>> {
     }
 }
 
-#[cfg(unix)]
 fn decode_chunked(body: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -282,11 +283,4 @@ fn decode_chunked(body: &[u8]) -> Result<Vec<u8>> {
         i += size + 2;
     }
     Ok(out)
-}
-
-#[cfg(not(unix))]
-fn http_get(_socket: &Path, _path: &str) -> Result<Vec<u8>> {
-    Err(CoreError::Scan(
-        "docker integration requires a unix socket".into(),
-    ))
 }

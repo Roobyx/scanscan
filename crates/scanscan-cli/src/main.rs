@@ -574,11 +574,10 @@ fn collect_tree(
 }
 
 fn cmd_docker(json: bool, stats: bool) -> anyhow::Result<()> {
-    let socket = std::env::var("SCANSCAN_DOCKER_SOCKET")
+    let target = std::env::var("SCANSCAN_DOCKER_SOCKET")
         .or_else(|_| std::env::var("DOCKER_HOST"))
-        .map(|s| s.trim_start_matches("unix://").to_string())
         .unwrap_or_else(|_| "/var/run/docker.sock".to_string());
-    let collector = DockerCollector::new(socket);
+    let collector = DockerCollector::new(target);
     let status = collector.status();
     if !status.available {
         let message = status.error.unwrap_or_else(|| "unavailable".into());

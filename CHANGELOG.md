@@ -12,6 +12,8 @@ All notable changes to scanscan are documented here. Newest entries first.
   export.
 - Backend: histogram dimensions (`ext|age|owner|size`), bounded hierarchy for radial/icicle/bubble
   layouts, Docker non-streaming stats, and `uid`/`gid`/`mode` capture in the scanner.
+- Least-privilege Docker access: the collector accepts `unix://` and `tcp://` endpoints, and the
+  reference stack ships a GET-only `docker-socket-proxy` sidecar instead of mounting `docker.sock`.
 
 ### Changed
 - The IPC/HTTP wire types now serialize camelCase, matching `packages/api-types` and the web client

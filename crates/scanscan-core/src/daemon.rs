@@ -28,14 +28,13 @@ pub struct Daemon {
 
 impl Daemon {
     pub fn new(store: Arc<Store>, config: Config) -> Self {
-        let socket = std::env::var("SCANSCAN_DOCKER_SOCKET")
+        let target = std::env::var("SCANSCAN_DOCKER_SOCKET")
             .or_else(|_| std::env::var("DOCKER_HOST"))
-            .map(|s| s.trim_start_matches("unix://").to_string())
             .unwrap_or_else(|_| "/var/run/docker.sock".to_string());
         Self {
             store,
             config,
-            docker: DockerCollector::new(socket),
+            docker: DockerCollector::new(target),
         }
     }
 
