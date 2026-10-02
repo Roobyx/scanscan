@@ -2,6 +2,18 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.3.0] - 2026-10-02
+
+### Added
+- Global scan progress: a floating panel (bottom-right) shows running scans with live file/dir/
+  byte counts and the current path, visible from every view. Starting a scan no longer blocks the
+  form; the dashboard navigates to the snapshot when the scan finishes.
+
+### Fixed
+- Host drive discovery no longer reads `/proc/mounts`, which reflects the container's namespace
+  even when bind-mounted. It now walks the read-only `/host` mount and detects mount points by
+  device changes, so the picker lists the host's real filesystems.
+
 ## [1.2.1] - 2026-10-02
 
 ### Fixed

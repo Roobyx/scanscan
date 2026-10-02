@@ -8,6 +8,7 @@ import type {
   MountInfo,
   NodeKind,
   NodeRecord,
+  ScanProgress,
   ScanSummary,
   TilesResponse,
 } from "@scanscan/api-types";
@@ -77,6 +78,10 @@ export function createScan(
 
 export function getScan(id: string): Promise<ScanSummary> {
   return request<ScanSummary>(`/scans/${encodeURIComponent(id)}`);
+}
+
+export function getProgress(id: string): Promise<ScanProgress> {
+  return request<ScanProgress>(`/scans/${encodeURIComponent(id)}/progress`);
 }
 
 export interface TilesQuery {

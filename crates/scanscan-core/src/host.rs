@@ -1,12 +1,13 @@
 //! Host mount discovery for the drive picker.
 //!
-//! When the host root is bind-mounted read-only (default `/host`), the host's
-//! mount table is readable at `<host_root>/proc/mounts`. We filter it down to
-//! real, block-backed filesystems and map each host mountpoint to its path
-//! inside the container so the UI can offer a picker.
+//! `/proc/mounts` cannot be used from inside a container: procfs generates its
+//! content from the *reader's* mount namespace, so even a bind-mounted host
+//! copy shows the container's mounts. Instead we walk the read-only host root
+//! (default `/host`) and detect mount points by device-id changes, which is
+//! namespace-independent. The walk is depth- and budget-bounded.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Serialize;
 
@@ -18,74 +19,105 @@ pub struct HostMount {
     pub path: String,
     /// The same mount as seen inside the container (e.g. `/host/mnt/data`).
     pub container_path: String,
-    /// Source device (e.g. `/dev/sda1`, `server:/export`).
+    /// Source device, when known.
     pub device: String,
-    /// Filesystem type (e.g. `ext4`, `xfs`).
+    /// Filesystem type, when known.
     pub fstype: String,
 }
 
-const REAL_FS: [&str; 16] = [
-    "ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "f2fs", "vfat", "exfat", "ntfs", "ntfs3",
-    "iso9660", "udf", "reiserfs", "jfs", "hfsplus",
+/// Directories that never contain interesting mounts and can be very large.
+const NO_DESCEND: [&str; 13] = [
+    "proc", "sys", "dev", "run", "snap", "usr", "lib", "lib32", "lib64", "libx32", "bin", "sbin",
+    "etc",
 ];
 
-/// Read the host mount table, keeping real filesystems.
-///
-/// `mounts_file` is an explicit host `/proc/mounts` mounted into the container
-/// (the reliable source); otherwise we try `<host_root>/proc/mounts`, then the
-/// container's own `/proc/mounts` as a last resort.
-pub fn read_mounts(host_root: &Path, mounts_file: Option<&Path>) -> Vec<HostMount> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(file) = mounts_file {
-        candidates.push(file.to_path_buf());
-    }
-    candidates.push(host_root.join("proc/mounts"));
-    candidates.push(PathBuf::from("/proc/mounts"));
-    let content = candidates
-        .iter()
-        .find_map(|path| std::fs::read_to_string(path).ok())
-        .unwrap_or_default();
+const MAX_DEPTH: u32 = 3;
+const MAX_VISITS: usize = 10_000;
 
-    let root = host_root.to_string_lossy();
+/// Enumerate the host's filesystems by walking the read-only host root.
+pub fn read_mounts(host_root: &Path) -> Vec<HostMount> {
+    let root_dev = dev_of(host_root);
+    let mut out = vec![HostMount {
+        path: "/".to_string(),
+        container_path: host_root.to_string_lossy().into_owned(),
+        device: String::new(),
+        fstype: String::new(),
+    }];
     let mut seen: HashSet<String> = HashSet::new();
-    let mut out = Vec::new();
-
-    for line in content.lines() {
-        let mut fields = line.split_whitespace();
-        let device = fields.next().unwrap_or("");
-        let mountpoint = fields.next().unwrap_or("");
-        let fstype = fields.next().unwrap_or("");
-        if mountpoint.is_empty() || !REAL_FS.contains(&fstype) {
-            continue;
-        }
-        let path = unescape(mountpoint);
-        if !seen.insert(path.clone()) {
-            continue;
-        }
-        let container_path = if path == "/" {
-            root.to_string()
-        } else {
-            format!("{root}{path}")
-        };
-        out.push(HostMount {
-            path,
-            container_path,
-            device: device.to_string(),
-            fstype: fstype.to_string(),
-        });
-    }
-
+    seen.insert(host_root.to_string_lossy().into_owned());
+    let mut budget = MAX_VISITS;
+    walk(host_root, host_root, 0, root_dev, &mut out, &mut seen, &mut budget);
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
 }
 
-/// `/proc/mounts` escapes space, tab, newline and backslash as octal.
-fn unescape(value: &str) -> String {
-    value
-        .replace("\\040", " ")
-        .replace("\\011", "\t")
-        .replace("\\012", "\n")
-        .replace("\\134", "\\")
+fn walk(
+    root: &Path,
+    dir: &Path,
+    depth: u32,
+    parent_dev: u64,
+    out: &mut Vec<HostMount>,
+    seen: &mut HashSet<String>,
+    budget: &mut usize,
+) {
+    if depth >= MAX_DEPTH || *budget == 0 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if *budget == 0 {
+            break;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if NO_DESCEND.contains(&name.as_str()) {
+            continue;
+        }
+        let path = entry.path();
+        // symlink_metadata: do not follow symlinks (a symlink is not a mount).
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        *budget -= 1;
+        let dev = dev_of(&path);
+        if dev != parent_dev {
+            if seen.insert(path.to_string_lossy().into_owned()) {
+                out.push(HostMount {
+                    path: relative(root, &path),
+                    container_path: path.to_string_lossy().into_owned(),
+                    device: String::new(),
+                    fstype: String::new(),
+                });
+            }
+            // Do not descend into a different filesystem.
+            continue;
+        }
+        walk(root, &path, depth + 1, dev, out, seen, budget);
+    }
+}
+
+fn relative(root: &Path, path: &Path) -> String {
+    match path.strip_prefix(root) {
+        Ok(rest) => format!("/{}", rest.to_string_lossy()),
+        Err(_) => path.to_string_lossy().into_owned(),
+    }
+}
+
+fn dev_of(path: &Path) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::symlink_metadata(path).map(|m| m.dev()).unwrap_or(0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        0
+    }
 }
 
 #[cfg(test)]
@@ -93,23 +125,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unescapes_octal() {
-        assert_eq!(unescape("/mnt/my\\040disk"), "/mnt/my disk");
+    fn includes_root_entry() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("mnt/data")).unwrap();
+        let mounts = read_mounts(tmp.path());
+        assert_eq!(mounts[0].path, "/");
+        assert_eq!(mounts[0].container_path, tmp.path().to_string_lossy());
     }
 
     #[test]
-    fn keeps_only_real_filesystems() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mounts = tmp.path().join("mounts");
-        std::fs::write(
-            &mounts,
-            "/dev/sda1 / ext4 rw 0 0\nproc /proc proc rw 0 0\ntmpfs /run tmpfs rw 0 0\n/dev/sdb1 /mnt/data xfs rw 0 0\n",
-        )
-        .unwrap();
-        let found = read_mounts(Path::new("/host"), Some(&mounts));
-        let paths: Vec<&str> = found.iter().map(|m| m.path.as_str()).collect();
-        assert_eq!(paths, vec!["/", "/mnt/data"]);
-        assert_eq!(found[0].container_path, "/host");
-        assert_eq!(found[1].container_path, "/host/mnt/data");
+    fn relative_paths() {
+        assert_eq!(relative(Path::new("/host"), Path::new("/host/boot/efi")), "/boot/efi");
     }
 }

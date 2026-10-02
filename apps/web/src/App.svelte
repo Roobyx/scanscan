@@ -20,6 +20,7 @@
   import Icicle from "./components/Icicle.svelte";
   import RankedTable from "./components/RankedTable.svelte";
   import ScanLauncher from "./components/ScanLauncher.svelte";
+  import ScanProgressPanel from "./components/ScanProgressPanel.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
   import Sunburst from "./components/Sunburst.svelte";
   import Treemap from "./components/Treemap.svelte";
@@ -195,8 +196,25 @@
   }
 
   async function handleCreated(id: string): Promise<void> {
+    // A scan was started: refresh the list so it appears, and pick the newest
+    // completed snapshot if nothing is selected. Progress is shown globally by
+    // <ScanProgressPanel />, and we navigate when it finishes.
     await loadScans();
-    await selectScan(id);
+    if (!selectedId) {
+      const newest = scans
+        .filter((scan) => scan.state === "completed")
+        .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs))[0];
+      if (newest) await selectScan(newest.id);
+    }
+    void id;
+  }
+
+  async function handleScanFinished(id: string): Promise<void> {
+    await loadScans();
+    const scan = scans.find((entry) => entry.id === id);
+    if (scan?.state === "completed") {
+      await selectScan(id);
+    }
   }
 
   async function loadTiles(
@@ -637,6 +655,8 @@
     <span>protocol v{health?.protocol ?? "—"}</span>
     <span class="muted">read-only · no telemetry</span>
   </footer>
+
+  <ScanProgressPanel onfinished={handleScanFinished} />
 </div>
 
 <style>

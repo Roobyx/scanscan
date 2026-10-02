@@ -1,11 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { isTerminalState } from "@scanscan/api-types";
-  import type { HostMount, ScanSummary } from "@scanscan/api-types";
-
-  import { createScan, errorMessage, getConfig, getHostMounts, getScan } from "../lib/api.js";
-  import { formatBytes } from "../lib/format.js";
+  import type { HostMount } from "@scanscan/api-types";
+  import { createScan, errorMessage, getConfig, getHostMounts } from "../lib/api.js";
 
   interface Props {
     oncreated: (scanId: string) => void;
@@ -16,10 +13,8 @@
   let rootsText = $state("/");
   let mounts = $state<HostMount[]>([]);
   let hostRoot = $state("/host");
-  let scan = $state<ScanSummary | null>(null);
   let error = $state<string | null>(null);
   let busy = $state(false);
-  let timer: ReturnType<typeof setInterval> | null = null;
 
   onMount(() => {
     void (async () => {
@@ -46,44 +41,6 @@
     if (value) rootsText = value;
   }
 
-  function stopPolling(): void {
-    if (timer !== null) {
-      clearInterval(timer);
-      timer = null;
-    }
-  }
-
-  function finish(result: ScanSummary): void {
-    busy = false;
-    if (result.state === "completed") {
-      oncreated(result.id);
-    } else {
-      error = `Scan ${result.state}.`;
-    }
-  }
-
-  async function poll(id: string): Promise<void> {
-    try {
-      const latest = await getScan(id);
-      scan = latest;
-      if (isTerminalState(latest.state)) {
-        stopPolling();
-        finish(latest);
-      }
-    } catch (cause) {
-      stopPolling();
-      busy = false;
-      error = errorMessage(cause);
-    }
-  }
-
-  function startPolling(id: string): void {
-    stopPolling();
-    timer = setInterval(() => {
-      void poll(id);
-    }, 1000);
-  }
-
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (busy) return;
@@ -97,22 +54,15 @@
       return;
     }
     busy = true;
-    scan = null;
     try {
       const created = await createScan(roots);
-      scan = created;
-      if (isTerminalState(created.state)) {
-        finish(created);
-      } else {
-        startPolling(created.id);
-      }
+      oncreated(created.id);
     } catch (cause) {
-      busy = false;
       error = errorMessage(cause);
+    } finally {
+      busy = false;
     }
   }
-
-  $effect(() => () => stopPolling());
 </script>
 
 <section class="launcher">
@@ -129,7 +79,9 @@
         <option value="">Choose a drive…</option>
         {#each mounts as mount (mount.path)}
           <option value={mount.containerPath}>
-            {mount.path} · {mount.fstype}{mount.device ? ` · ${mount.device}` : ""}
+            {mount.path}{mount.fstype ? ` · ${mount.fstype}` : ""}{mount.device
+              ? ` · ${mount.device}`
+              : ""}
           </option>
         {/each}
       </select>
@@ -149,22 +101,6 @@
 
   {#if error}
     <p class="error" role="alert">{error}</p>
-  {/if}
-
-  {#if scan}
-    <dl class="progress">
-      <div>
-        <dt>State</dt>
-        <dd class:ok={scan.state === "completed"} class:err={scan.state === "failed"}>
-          {scan.state}
-        </dd>
-      </div>
-      <div><dt>Files</dt><dd>{scan.files.toLocaleString()}</dd></div>
-      <div><dt>Dirs</dt><dd>{scan.dirs.toLocaleString()}</dd></div>
-      <div><dt>Apparent</dt><dd>{formatBytes(scan.bytesApparent)}</dd></div>
-      <div><dt>Allocated</dt><dd>{formatBytes(scan.bytesAlloc)}</dd></div>
-      <div><dt>Errors</dt><dd>{scan.errors.toLocaleString()}</dd></div>
-    </dl>
   {/if}
 </section>
 
