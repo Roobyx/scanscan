@@ -2,6 +2,12 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.0.1] - 2026-10-02
+
+### Fixed
+- The dashboard had no visible way to start a new scan once a completed scan was auto-selected.
+  Added an always-visible **+ New scan** button in the header.
+
 ## [1.0.0] - 2026-10-02
 
 ### Added

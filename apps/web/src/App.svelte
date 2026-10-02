@@ -447,6 +447,7 @@
           {/each}
         </select>
       {/if}
+      <button type="button" class="action" onclick={() => (selectedId = null)}>+ New scan</button>
       <div class="toggle" role="group" aria-label="Color mode">
         <button type="button" class:active={colorMode === "size"} onclick={() => (colorMode = "size")}>
           Size
