@@ -2,6 +2,19 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.0.0] - 2026-10-02
+
+### Added
+- Phase 4: Astro + Starlight documentation site — a splash landing page plus getting started,
+  installation, web UI, CLI, HTTP API, Docker, agent-skill, architecture, configuration, security
+  and troubleshooting pages.
+- Release workflow (manual `workflow_dispatch`) producing multi-arch (linux/amd64, linux/arm64)
+  images pushed to GHCR.
+
+### Changed
+- The CI workflow is manual-only (`workflow_dispatch`) until GitHub Actions is configured for the
+  repository.
+
 ## [0.4.0] - 2026-10-02
 
 ### Added

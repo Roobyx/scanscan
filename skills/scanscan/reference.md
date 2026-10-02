@@ -11,10 +11,10 @@ JSON-first, read-only. Every command accepts `--json` and writes one JSON object
 | `scanscan ls [path]` | List children | `--sort size\|name\|mtime`, `--limit N` |
 | `scanscan du [path]` | Subtree sizes | `--depth N`, `--apparent` |
 | `scanscan top [path]` | Largest entries | `-n N`, `--kind file\|dir`, `--metric alloc\|apparent\|items` |
-| `scanscan find [path]` | Filtered search | `--size`, `--mtime`, `--ext`, `--owner`, `--regex`, `--dupe` |
+| `scanscan find [path]` | Filtered search | `--size`, `--mtime`, `--ext`, `--owner`, `--dupe` |
 | `scanscan tree [path]` | Print hierarchy | `--depth N` |
 | `scanscan ext [path]` | Extension breakdown | — |
-| `scanscan diff <a> <b>` | Compare two snapshots | — |
+| `scanscan diff <a> <b>` | Compare two snapshots by path | — |
 | `scanscan docker` | Containers, sizes, mounts | `--stats` |
 | `scanscan export <snap>` | Export a snapshot | `--format csv\|json\|parquet` |
 | `scanscan snapshots` | List/delete/GC snapshots | `list`, `delete <id>`, `gc --keep N` |
@@ -43,11 +43,19 @@ GET  /api/v1/scans/:id/progress       # SSE
 GET  /api/v1/scans/:id/children/:nodeId
 GET  /api/v1/scans/:id/tiles?path=&depth=&w=&h=&color=
 GET  /api/v1/scans/:id/top?n=&kind=&metric=
-GET  /api/v1/scans/:id/search?q=&size_min=&size_max=&mtime_before=&ext=&owner=
+GET  /api/v1/scans/:id/extensions
+GET  /api/v1/scans/:id/histogram?dim=ext|age|owner|size&scope=
+GET  /api/v1/scans/:id/owners
+GET  /api/v1/scans/:id/age
+GET  /api/v1/scans/:id/search?q=&ext=&kind=&size_min=&size_max=&limit=
+GET  /api/v1/scans/:id/duplicates?mode=name+size|name+size+mtime&limit=
 GET  /api/v1/scans/:id/diff/:otherId
+GET  /api/v1/scans/:id/export?format=csv|json
+POST /api/v1/gc                        # { keep } — delete snapshots beyond the newest N
 GET  /api/v1/docker/containers
-GET  /api/v1/docker/stats             # SSE
 GET  /api/v1/docker/mounts
+GET  /api/v1/docker/stats
+GET  /api/v1/docker/status
 ```
 
 ## Snapshots & diffs

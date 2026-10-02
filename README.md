@@ -7,8 +7,18 @@
 works fully from the CLI, understands Docker container sizes and mounts, and ships with a
 marketing/documentation site and an agent Skill.
 
-**Status:** Phase 0 (foundation) — see [`PLAN.md`](./PLAN.md) for the authoritative design and
-roadmap. **License:** GPL-3.0-or-later. **Primary target:** Linux → macOS → Windows.
+**Status:** v1.0.0 — Phases 0–4 complete. See [`PLAN.md`](./PLAN.md) for the authoritative design
+and roadmap. **License:** GPL-3.0-or-later. **Primary target:** Linux → macOS → Windows.
+
+## Features
+
+- Streaming pre-order scanner (parallel `stat`, hardlink dedup, sparse/mount flags, exclusions,
+  per-entry errors) into an immutable, memory-mapped snapshot.
+- Web client with treemap, sunburst, icicle, bubble, ranked bars, size histogram and
+  extension/age/owner breakdowns, search, duplicates, diff/trend, and a Docker dashboard.
+- JSON-first CLI and a versioned UDS JSON-RPC daemon; REST/SSE API with camelCase wire types.
+- Read-only Docker integration (sizes, mounts, live stats) via a GET-only socket proxy.
+- Astro + Starlight documentation site on its own port.
 
 ## Architecture
 

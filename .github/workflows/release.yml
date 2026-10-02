@@ -1,0 +1,44 @@
+name: Release
+
+# Manual only until GitHub Actions is configured for this repository.
+# Produces multi-arch images and pushes them to GHCR.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to publish
+        required: true
+        default: latest
+
+jobs:
+  images:
+    name: Build ${{ matrix.name }} (linux/amd64, linux/arm64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            dockerfile: deploy/docker/Dockerfile.server
+          - name: site
+            dockerfile: deploy/docker/Dockerfile.site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}/${{ matrix.name }}:${{ inputs.tag }}
