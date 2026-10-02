@@ -5,6 +5,7 @@ pub mod config;
 pub mod daemon;
 pub mod docker;
 pub mod error;
+pub mod host;
 pub mod index;
 pub mod query;
 pub mod scanner;

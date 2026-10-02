@@ -2,9 +2,9 @@
   import { onMount } from "svelte";
 
   import { isTerminalState } from "@scanscan/api-types";
-  import type { ScanSummary } from "@scanscan/api-types";
+  import type { HostMount, ScanSummary } from "@scanscan/api-types";
 
-  import { createScan, errorMessage, getConfig, getScan } from "../lib/api.js";
+  import { createScan, errorMessage, getConfig, getHostMounts, getScan } from "../lib/api.js";
   import { formatBytes } from "../lib/format.js";
 
   interface Props {
@@ -14,6 +14,8 @@
   let { oncreated }: Props = $props();
 
   let rootsText = $state("/");
+  let mounts = $state<HostMount[]>([]);
+  let hostRoot = $state("/host");
   let scan = $state<ScanSummary | null>(null);
   let error = $state<string | null>(null);
   let busy = $state(false);
@@ -29,8 +31,20 @@
       } catch {
         // Keep the default root when the config cannot be loaded.
       }
+      try {
+        const response = await getHostMounts();
+        mounts = response.mounts;
+        hostRoot = response.hostRoot;
+      } catch {
+        // No host mount available; the user can still type a path.
+      }
     })();
   });
+
+  function pickMount(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    if (value) rootsText = value;
+  }
 
   function stopPolling(): void {
     if (timer !== null) {
@@ -103,12 +117,30 @@
 
 <section class="launcher">
   <h2>Start a scan</h2>
-  <p class="hint">Read-only. One root per line, or comma-separated.</p>
+  <p class="hint">
+    The host filesystem is mounted read-only at <code>{hostRoot}</code>. Pick a drive/mount, or
+    type one or more paths (one per line, or comma-separated). Scans are read-only.
+  </p>
+
+  {#if mounts.length > 0}
+    <label class="mounts">
+      <span>Drive / mount on the host</span>
+      <select onchange={pickMount} disabled={busy} aria-label="Host drive">
+        <option value="">Choose a drive…</option>
+        {#each mounts as mount (mount.path)}
+          <option value={mount.containerPath}>
+            {mount.path} · {mount.fstype}{mount.device ? ` · ${mount.device}` : ""}
+          </option>
+        {/each}
+      </select>
+    </label>
+  {/if}
+
   <form onsubmit={submit}>
     <input
       type="text"
       bind:value={rootsText}
-      placeholder="/var, /home"
+      placeholder="{hostRoot}, {hostRoot}/mnt/data"
       aria-label="Root paths"
       disabled={busy}
     />
@@ -154,6 +186,28 @@
     margin: 0 0 1rem;
     color: var(--muted);
     font-size: 0.8rem;
+  }
+
+  .hint code {
+    color: var(--text);
+  }
+
+  .mounts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .mounts select {
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
   }
 
   form {

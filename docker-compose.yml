@@ -11,6 +11,7 @@ services:
       SCANSCAN_BIND: 0.0.0.0:8080
       SCANSCAN_CORE_SOCKET: /run/scanscan/scanscan.sock
       SCANSCAN_ROOTS: ${SCANSCAN_ROOTS:-/host}
+      SCANSCAN_HOST_ROOT: /host
       SCANSCAN_DOCKER: "true"
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     volumes:

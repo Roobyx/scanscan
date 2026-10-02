@@ -161,6 +161,18 @@ export interface HistogramBucket {
   size: number;
 }
 
+export interface HostMount {
+  path: string;
+  containerPath: string;
+  device: string;
+  fstype: string;
+}
+
+export interface HostMountsResponse {
+  hostRoot: string;
+  mounts: HostMount[];
+}
+
 /** Terminal scan states never transition again. */
 export function isTerminalState(state: ScanState): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";

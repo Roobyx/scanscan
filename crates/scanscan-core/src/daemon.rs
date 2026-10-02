@@ -60,6 +60,14 @@ impl Daemon {
                 "roots": self.config.roots,
                 "docker_enabled": self.config.docker_enabled,
             })),
+            methods::HOST_MOUNTS => {
+                let host_root = std::env::var("SCANSCAN_HOST_ROOT")
+                    .unwrap_or_else(|_| "/host".to_string());
+                to_value(json!({
+                    "hostRoot": host_root,
+                    "mounts": crate::host::read_mounts(std::path::Path::new(&host_root)),
+                }))
+            }
             methods::SCANS_CREATE => {
                 let p: ScansCreate = params(req)?;
                 let options = match p.options {

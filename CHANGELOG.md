@@ -2,6 +2,15 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.2.0] - 2026-10-02
+
+### Added
+- Host drive picker in the scan form: `host.mounts` (GET `/api/v1/host/mounts`) reads the host
+  mount table under `/host/proc/mounts`, filters to real block-backed filesystems, and maps each
+  host mountpoint to its container path. The **Start a scan** panel lists the drives and fills the
+  root when one is chosen, and explains that the host is mounted read-only at `/host`.
+- `SCANSCAN_HOST_ROOT` (default `/host`) to configure the host mount location.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added

@@ -55,6 +55,14 @@ export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Ho
     }),
   );
 
+  app.get("/api/v1/host/mounts", async (c) => {
+    try {
+      return c.json(await core.call("host.mounts"));
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
   // ---- scans ----
   app.get("/api/v1/scans", async (c) => {
     try {

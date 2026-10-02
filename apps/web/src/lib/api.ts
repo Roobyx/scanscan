@@ -4,6 +4,7 @@ import type {
   HealthResponse,
   HierarchyNode,
   HistogramBucket,
+  HostMountsResponse,
   MountInfo,
   NodeKind,
   NodeRecord,
@@ -52,6 +53,10 @@ export interface ServerConfig {
 
 export function getConfig(): Promise<ServerConfig> {
   return request<ServerConfig>("/config");
+}
+
+export function getHostMounts(): Promise<HostMountsResponse> {
+  return request<HostMountsResponse>("/host/mounts");
 }
 
 export async function listScans(): Promise<ScanSummary[]> {

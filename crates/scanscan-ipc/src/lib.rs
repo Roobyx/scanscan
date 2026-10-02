@@ -47,4 +47,5 @@ pub mod methods {
     pub const CONFIG_GET: &str = "config.get";
     pub const CONFIG_SET: &str = "config.set";
     pub const HEALTH: &str = "core.health";
+    pub const HOST_MOUNTS: &str = "host.mounts";
 }
