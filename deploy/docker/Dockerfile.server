@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1
+
+# ---------------------------------------------------------------------------
+# scanscan/server — Rust core + Bun/Hono API server + Svelte web client
+# ---------------------------------------------------------------------------
+
+# ---- Stage 1: Rust core (static musl binary) ----
+FROM rust:alpine AS core-build
+RUN apk add --no-cache musl-dev
+WORKDIR /src
+COPY Cargo.toml rust-toolchain.toml ./
+COPY crates ./crates
+# Build the CLI/daemon, then gate the image on the core test suite.
+RUN cargo build --release --bin scanscan \
+ && cargo test --workspace --release
+
+# ---- Stage 2: TypeScript build (server + web) ----
+FROM oven/bun:1-alpine AS js-build
+WORKDIR /src
+COPY package.json tsconfig.base.json biome.json ./
+COPY packages ./packages
+COPY apps/server ./apps/server
+COPY apps/web ./apps/web
+RUN bun install
+# Gate on the TS test suites before producing artefacts.
+RUN bun run --filter '@scanscan/api-types' test \
+ && bun run --filter '@scanscan/server' test \
+ && bun run --filter '@scanscan/web' test
+RUN bun run --filter '@scanscan/server' build \
+ && bun run --filter '@scanscan/web' build
+
+# ---- Stage 3: runtime ----
+FROM oven/bun:1-alpine AS runtime
+RUN addgroup -S scanscan && adduser -S -G scanscan -h /app scanscan
+WORKDIR /app
+COPY --from=core-build /src/target/release/scanscan /usr/local/bin/scanscan
+COPY --from=js-build /src/apps/server/dist ./server
+COPY --from=js-build /src/apps/server/package.json ./package.json
+COPY --from=js-build /src/apps/web/dist ./web
+RUN mkdir -p /data /run/scanscan && chown -R scanscan:scanscan /data /run/scanscan /app
+
+ENV SCANSCAN_DATA_DIR=/data \
+    SCANSCAN_BIND=0.0.0.0:8080 \
+    SCANSCAN_WEB_DIR=/app/web \
+    SCANSCAN_CORE_SOCKET=/run/scanscan/scanscan.sock \
+    SCANSCAN_CORE_BIN=/usr/local/bin/scanscan
+
+EXPOSE 8080
+VOLUME ["/data"]
+
+USER scanscan
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+  CMD wget -qO- http://127.0.0.1:8080/api/v1/health || exit 1
+
+CMD ["bun", "run", "/app/server/index.js"]

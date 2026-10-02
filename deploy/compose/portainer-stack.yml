@@ -1,0 +1,60 @@
+# Portainer stack for scanscan.
+#
+# Deploy: Stacks -> Add stack -> paste/upload this file -> set the environment
+# variables below -> Deploy. See deploy/compose/.env.example for the variables.
+#
+# Least privilege: instead of mounting docker.sock directly, enable the
+# GET-only socket proxy service below and point the app at it.
+services:
+  scanscan:
+    image: scanscan/server:${SCANSCAN_TAG:-dev}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.server
+    ports:
+      - "${SCANSCAN_PORT:-8080}:8080"
+    environment:
+      SCANSCAN_DATA_DIR: /data
+      SCANSCAN_BIND: 0.0.0.0:8080
+      SCANSCAN_ROOTS: /host
+      SCANSCAN_DOCKER: "true"
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+    volumes:
+      - scanscan-data:/data
+      - ${HOST_MOUNT:-/}:/host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  scanscan-site:
+    image: scanscan/site:${SCANSCAN_TAG:-dev}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.site
+    ports:
+      - "${SCANSCAN_SITE_PORT:-3000}:80"
+    restart: unless-stopped
+
+  # Optional GET-only Docker socket proxy. Remove the docker.sock mount from
+  # the scanscan service and set DOCKER_HOST=tcp://docker-socket-proxy:2375.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      VOLUMES: 1
+      INFO: 1
+      SYSTEM: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    profiles: ["socket-proxy"]
+
+volumes:
+  scanscan-data:

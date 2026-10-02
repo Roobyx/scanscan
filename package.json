@@ -1,0 +1,21 @@
+{
+  "name": "scanscan",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Roobyx/scanscan"
+  },
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "test": "bun run --filter '*' test",
+    "check": "bunx @biomejs/biome check apps/server packages apps/site/src apps/site/test apps/web/src/lib && bun run --filter '*' check",
+    "format": "bunx @biomejs/biome check --write apps/server packages apps/site/src apps/site/test apps/web/src/lib"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,282 @@
+---
+import { COMPARISONS, tagline } from "../lib/pitch.js";
+
+const features = [
+  {
+    title: "Scan once, query forever",
+    body: "Immutable CAS snapshots with mmap reads. Folder sizes are O(1); top-N is a slice scan.",
+  },
+  {
+    title: "Browser treemap at 60fps",
+    body: "WebGL2 squarified treemap with depth-limited tiles — never 50M rectangles over the wire.",
+  },
+  {
+    title: "Understands Docker",
+    body: "Container, image and volume sizes plus bind mounts and volumes mapped onto the index.",
+  },
+  {
+    title: "CLI + agent first",
+    body: "Every command emits JSON. A first-class Skill drives scans, queries and Docker audits.",
+  },
+  {
+    title: "Bounded memory",
+    body: "The scanner streams to disk with O(depth) state — target under 512 MB for 50M files.",
+  },
+  {
+    title: "Read-only by design",
+    body: "No delete, no move, no telemetry. Mount the host and Docker socket read-only.",
+  },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={tagline()} />
+    <title>scanscan — disk-space analyzer for servers</title>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><span>▚</span> scanscan</div>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#compare">Compare</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="https://github.com/Roobyx/scanscan">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Headless · read-only · GPL-3.0</p>
+        <h1>Where did my disk space go?</h1>
+        <p class="lede">{tagline()} Scan and index entire filesystems, then explore them from any browser — without Diskover's RAM cost.</p>
+        <div class="cta">
+          <a class="btn primary" href="#quickstart">Get started</a>
+          <a class="btn" href="https://github.com/Roobyx/scanscan">View source</a>
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>Built for operators</h2>
+        <div class="grid">
+          {features.map((f) => (
+            <article class="card">
+              <h3>{f.title}</h3>
+              <p>{f.body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="compare">
+        <h2>How it compares</h2>
+        <table>
+          <thead>
+            <tr><th>Tool</th><th>Index</th><th>RAM</th><th>Web</th><th>Docker</th></tr>
+          </thead>
+          <tbody>
+            {COMPARISONS.map((row) => (
+              <tr class={row.tool === "scanscan" ? "self" : ""}>
+                <td>{row.tool}</td><td>{row.index}</td><td>{row.ram}</td>
+                <td>{row.web}</td><td>{row.docker}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section id="quickstart">
+        <h2>Quickstart</h2>
+        <pre><code>{`# one image + compose
+docker compose up -d
+# web client on :8080, docs on :3000`}</code></pre>
+        <p class="muted">Or run the core directly: <code>scanscan scan / --json</code></p>
+      </section>
+    </main>
+
+    <footer>
+      <span>© {new Date().getFullYear()} scanscan contributors</span>
+      <span>GPL-3.0-or-later</span>
+    </footer>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --bg: #0b0e14;
+    --panel: #121722;
+    --border: #263041;
+    --text: #e6ebf2;
+    --muted: #8a97ab;
+    --accent: #4f8cff;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  .brand {
+    font-weight: 700;
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .brand span {
+    color: var(--accent);
+  }
+
+  nav a {
+    color: var(--muted);
+    margin-left: 1rem;
+    text-decoration: none;
+  }
+
+  nav a:hover {
+    color: var(--text);
+  }
+
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+
+  .hero {
+    padding: 4rem 0 3rem;
+  }
+
+  .eyebrow {
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.75rem;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    margin: 0.25rem 0;
+    line-height: 1.1;
+  }
+
+  .lede {
+    color: var(--muted);
+    font-size: 1.15rem;
+    max-width: 46ch;
+  }
+
+  .cta {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .btn {
+    padding: 0.6rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #06101f;
+    font-weight: 600;
+  }
+
+  h2 {
+    margin-top: 3rem;
+    font-size: 1.4rem;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+  }
+
+  .card h3 {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+  }
+
+  .card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+  }
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+
+  tr.self {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    overflow: auto;
+  }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+
+  footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+</style>

@@ -1,7 +1,9 @@
+# Full-featured compose: host filesystems and the Docker socket mounted read-only.
+# The root ../docker-compose.yml is the minimal variant used by the Portainer stack.
 services:
   scanscan:
     build:
-      context: .
+      context: ../..
       dockerfile: deploy/docker/Dockerfile.server
     image: scanscan/server:${SCANSCAN_TAG:-dev}
     ports:
@@ -9,11 +11,12 @@ services:
     environment:
       SCANSCAN_DATA_DIR: /data
       SCANSCAN_BIND: 0.0.0.0:8080
-      SCANSCAN_CORE_SOCKET: /run/scanscan/scanscan.sock
-      SCANSCAN_ROOTS: ${SCANSCAN_ROOTS:-}
-      SCANSCAN_DOCKER: "false"
+      SCANSCAN_ROOTS: /host
+      SCANSCAN_DOCKER: "true"
     volumes:
       - scanscan-data:/data
+      - ${HOST_MOUNT:-/}:/host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/health"]
       interval: 30s
@@ -24,17 +27,11 @@ services:
 
   scanscan-site:
     build:
-      context: .
+      context: ../..
       dockerfile: deploy/docker/Dockerfile.site
     image: scanscan/site:${SCANSCAN_TAG:-dev}
     ports:
       - "${SCANSCAN_SITE_PORT:-3000}:80"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     restart: unless-stopped
 
 volumes:
