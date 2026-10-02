@@ -36,6 +36,7 @@ pub mod methods {
     pub const QUERY_HISTOGRAM: &str = "query.histogram";
     pub const QUERY_DIFF: &str = "query.diff";
     pub const QUERY_DUPLICATES: &str = "query.duplicates";
+    pub const QUERY_HEATMAP: &str = "query.heatmap";
 
     pub const SNAPSHOTS_GC: &str = "snapshots.gc";
 

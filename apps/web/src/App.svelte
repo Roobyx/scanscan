@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {
     HealthResponse,
+    HeatmapResponse,
     HierarchyNode,
     HistogramBucket,
     NodeRecord,
@@ -16,6 +17,7 @@
   import DiffPanel from "./components/DiffPanel.svelte";
   import DockerPanel from "./components/DockerPanel.svelte";
   import DuplicatesPanel from "./components/DuplicatesPanel.svelte";
+  import Heatmap from "./components/Heatmap.svelte";
   import Histogram from "./components/Histogram.svelte";
   import Icicle from "./components/Icicle.svelte";
   import RankedTable from "./components/RankedTable.svelte";
@@ -29,6 +31,7 @@
     exportUrl,
     getChildren,
     getHealth,
+    getHeatmap,
     getHistogram,
     getScan,
     getTiles,
@@ -48,6 +51,7 @@
     | "bubble"
     | "bars"
     | "histogram"
+    | "heatmap"
     | "extensions"
     | "age"
     | "owners"
@@ -67,6 +71,7 @@
     { id: "bubble", label: "Bubble" },
     { id: "bars", label: "Bars" },
     { id: "histogram", label: "Histogram" },
+    { id: "heatmap", label: "Heatmap" },
     { id: "extensions", label: "Extensions" },
     { id: "age", label: "Age" },
     { id: "owners", label: "Owners" },
@@ -129,6 +134,7 @@
   let tree = $state<HierarchyNode | null>(null);
   let topNodes = $state<NodeRecord[]>([]);
   let histogram = $state<HistogramBucket[]>([]);
+  let heatmapData = $state<HeatmapResponse | null>(null);
   let viewLoading = $state(false);
   let viewError = $state<string | null>(null);
 
@@ -269,6 +275,8 @@
       tree = null;
     } else if (view === "bars") {
       topNodes = [];
+    } else if (view === "heatmap") {
+      heatmapData = null;
     } else {
       histogram = [];
     }
@@ -282,6 +290,10 @@
         const nodes = await getTop(scanId, { n: 25, scope: scopeId });
         if (seq !== viewSeq) return;
         topNodes = nodes;
+      } else if (view === "heatmap") {
+        const response = await getHeatmap(scanId, scopeId);
+        if (seq !== viewSeq) return;
+        heatmapData = response;
       } else {
         const dim: HistogramDim =
           view === "histogram" ? "size" : view === "age" ? "age" : view === "owners" ? "owner" : "ext";
@@ -616,6 +628,16 @@
               <p class="state">No nodes in {scopeLabel}.</p>
             {:else}
               <Bars items={topNodes} onselect={openNode} />
+            {/if}
+          {:else if view === "heatmap"}
+            {#if viewLoading}
+              <p class="state">Loading…</p>
+            {:else if viewError}
+              <p class="state err">{viewError}</p>
+            {:else if heatmapData}
+              <Heatmap heatmap={heatmapData} />
+            {:else}
+              <p class="state">No data in {scopeLabel}.</p>
             {/if}
           {:else if view === "histogram"}
             {#if viewLoading}

@@ -220,6 +220,19 @@ export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Ho
     }
   });
 
+  app.get("/api/v1/scans/:id/heatmap", async (c) => {
+    try {
+      return c.json(
+        await core.call("query.heatmap", {
+          id: c.req.param("id"),
+          scope: num(c.req.query("scope"), 0),
+        }),
+      );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
   app.get("/api/v1/scans/:id/owners", async (c) => {
     try {
       return c.json(

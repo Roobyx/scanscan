@@ -2,6 +2,13 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.4.0] - 2026-10-02
+
+### Added
+- Age × size heatmap view (PLAN §10.3 #8): `query.heatmap` / `GET /api/v1/scans/:id/heatmap`
+  bins every file by age bucket (from `<1d` to `>3y`) and size bucket (from `0-1 KB` to `>1 GB`);
+  the web client renders it as a heatmap with per-cell file count and bytes.
+
 ## [1.3.0] - 2026-10-02
 
 ### Added

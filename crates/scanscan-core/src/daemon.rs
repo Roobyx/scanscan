@@ -184,6 +184,12 @@ impl Daemon {
                 let b = self.open(&p.b)?;
                 to_value(crate::query::diff(&a, &b))
             }
+            methods::QUERY_HEATMAP => {
+                let p: HistParam = params(req)?;
+                let reader = self.open(&p.id)?;
+                let q = QueryEngine::new(&reader);
+                to_value(q.heatmap(p.scope.unwrap_or(0)))
+            }
             methods::SNAPSHOTS_GC => {
                 let p: GcParam = params(req)?;
                 let removed = self

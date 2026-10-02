@@ -161,6 +161,17 @@ export interface HistogramBucket {
   size: number;
 }
 
+export interface HeatmapCell {
+  count: number;
+  bytes: number;
+}
+
+export interface HeatmapResponse {
+  ageBuckets: string[];
+  sizeBuckets: string[];
+  cells: HeatmapCell[][];
+}
+
 export interface HostMount {
   path: string;
   containerPath: string;

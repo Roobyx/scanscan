@@ -588,6 +588,67 @@ impl<'a> QueryEngine<'a> {
         groups.truncate(limit.max(1));
         groups
     }
+
+    /// Age × size heatmap of file mass.
+    pub fn heatmap(&self, scope: u32) -> Heatmap {
+        const DAY: i64 = 86_400_000;
+        let age_edges: [(i64, &str); 7] = [
+            (DAY, "<1d"),
+            (7 * DAY, "<7d"),
+            (30 * DAY, "<30d"),
+            (90 * DAY, "<90d"),
+            (365 * DAY, "<1y"),
+            (1095 * DAY, "<3y"),
+            (i64::MAX, ">3y"),
+        ];
+        const KB: u64 = 1024;
+        let size_edges: [(u64, &str); 8] = [
+            (KB, "0-1 KB"),
+            (10 * KB, "1-10 KB"),
+            (100 * KB, "10-100 KB"),
+            (KB * KB, "100 KB-1 MB"),
+            (10 * KB * KB, "1-10 MB"),
+            (100 * KB * KB, "10-100 MB"),
+            (KB * KB * KB, "100 MB-1 GB"),
+            (u64::MAX, ">1 GB"),
+        ];
+
+        let mut cells = vec![vec![(0u64, 0u64); size_edges.len()]; age_edges.len()];
+        let now = crate::index::now_ms();
+        for id in self.reader.subtree_range(scope) {
+            let Some(rec) = self.reader.record(id) else {
+                continue;
+            };
+            if rec.kind.is_dir() {
+                continue;
+            }
+            let age = (now - rec.mtime_ms).max(0);
+            let age_idx = age_edges
+                .iter()
+                .position(|(limit, _)| age < *limit)
+                .unwrap_or(age_edges.len() - 1);
+            let size_idx = size_edges
+                .iter()
+                .position(|(limit, _)| rec.size_alloc < *limit)
+                .unwrap_or(size_edges.len() - 1);
+            let cell = &mut cells[age_idx][size_idx];
+            cell.0 += 1;
+            cell.1 = cell.1.saturating_add(rec.size_alloc);
+        }
+
+        Heatmap {
+            age_buckets: age_edges.iter().map(|(_, label)| label.to_string()).collect(),
+            size_buckets: size_edges.iter().map(|(_, label)| label.to_string()).collect(),
+            cells: cells
+                .into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .map(|(count, bytes)| HeatmapCell { count, bytes })
+                        .collect()
+                })
+                .collect(),
+        }
+    }
 }
 
 /// A group of metadata-identical files.
@@ -787,6 +848,24 @@ pub struct HierarchyNode {
     pub size: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<HierarchyNode>,
+}
+
+/// A single age × size heatmap cell.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatmapCell {
+    pub count: u64,
+    pub bytes: u64,
+}
+
+/// An age × size heatmap matrix.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Heatmap {
+    pub age_buckets: Vec<String>,
+    pub size_buckets: Vec<String>,
+    /// `cells[age][size]`
+    pub cells: Vec<Vec<HeatmapCell>>,
 }
 
 fn dummy_record() -> crate::index::Record {

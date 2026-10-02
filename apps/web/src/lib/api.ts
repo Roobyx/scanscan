@@ -2,6 +2,7 @@ import type {
   ContainerInfo,
   DockerStats,
   HealthResponse,
+  HeatmapResponse,
   HierarchyNode,
   HistogramBucket,
   HostMountsResponse,
@@ -161,6 +162,10 @@ export async function getExtensions(id: string): Promise<ExtensionStat[]> {
     `/scans/${encodeURIComponent(id)}/extensions`,
   );
   return body.items;
+}
+
+export function getHeatmap(id: string, scope: number): Promise<HeatmapResponse> {
+  return request<HeatmapResponse>(`/scans/${encodeURIComponent(id)}/heatmap?scope=${scope}`);
 }
 
 export type HistogramDim = "ext" | "age" | "owner" | "size";
