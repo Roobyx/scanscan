@@ -1,9 +1,10 @@
 name: CI
 
+# Disabled: GitHub Actions is not configured for this repository, so automatic
+# runs only produce noise. Run manually from the Actions tab (or
+# `gh workflow run ci.yml`) once CI is set up.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}

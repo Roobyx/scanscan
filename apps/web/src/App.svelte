@@ -13,7 +13,9 @@
   import Breadcrumb from "./components/Breadcrumb.svelte";
   import Breakdown from "./components/Breakdown.svelte";
   import Bubble from "./components/Bubble.svelte";
+  import DiffPanel from "./components/DiffPanel.svelte";
   import DockerPanel from "./components/DockerPanel.svelte";
+  import DuplicatesPanel from "./components/DuplicatesPanel.svelte";
   import Histogram from "./components/Histogram.svelte";
   import Icicle from "./components/Icicle.svelte";
   import RankedTable from "./components/RankedTable.svelte";
@@ -32,6 +34,7 @@
     getTop,
     getTree,
     listScans,
+    runGc,
   } from "./lib/api.js";
   import type { HistogramDim } from "./lib/api.js";
   import type { ColorMode } from "./lib/color.js";
@@ -47,7 +50,9 @@
     | "extensions"
     | "age"
     | "owners"
-    | "docker";
+    | "docker"
+    | "duplicates"
+    | "diff";
 
   interface ViewDef {
     id: ViewId;
@@ -65,6 +70,8 @@
     { id: "age", label: "Age" },
     { id: "owners", label: "Owners" },
     { id: "docker", label: "Docker" },
+    { id: "duplicates", label: "Duplicates" },
+    { id: "diff", label: "Diff" },
   ];
 
   interface Crumb {
@@ -127,6 +134,9 @@
   let searchOpen = $state(initial.q.length > 0);
   let searchQuery = $state(initial.q);
 
+  let gcBusy = $state(false);
+  let gcMessage = $state<string | null>(null);
+
   let treemapHost = $state<HTMLDivElement | null>(null);
   let hostW = $state(0);
   let hostH = $state(0);
@@ -144,12 +154,15 @@
   const scopeLabel = $derived(scopePath[scopePath.length - 1]?.name ?? "/");
   const totalBytes = $derived(tiles.reduce((sum, tile) => sum + tile.size, 0));
   const isHierarchyView = $derived(view === "sunburst" || view === "icicle" || view === "bubble");
+  const hasCompleted = $derived(scans.some((scan) => scan.state === "completed"));
 
   const viewSummary = $derived.by(() => {
     if (view === "treemap") return `${formatBytes(totalBytes)}${truncated ? " · truncated" : ""}`;
     if (isHierarchyView) return tree ? formatBytes(tree.size) : "—";
     if (view === "bars") return `${topNodes.length} nodes`;
     if (view === "docker") return "containers";
+    if (view === "duplicates") return "duplicate files";
+    if (view === "diff") return "snapshot diff";
     return `${histogram.length} buckets`;
   });
 
@@ -318,6 +331,33 @@
     if (value.length > 0) void selectScan(value);
   }
 
+  async function handleGc(): Promise<void> {
+    if (!window.confirm("Delete all but the 3 most recent snapshots?")) return;
+    gcBusy = true;
+    gcMessage = null;
+    error = null;
+    try {
+      const result = await runGc(3);
+      gcMessage = `removed ${result.removed.length}`;
+      await loadScans();
+      if (selectedId && !scans.some((scan) => scan.id === selectedId)) {
+        const completed = scans
+          .filter((scan) => scan.state === "completed")
+          .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs));
+        const newest = completed[0];
+        if (newest) {
+          await selectScan(newest.id);
+        } else {
+          selectedId = null;
+        }
+      }
+    } catch (cause) {
+      error = errorMessage(cause);
+    } finally {
+      gcBusy = false;
+    }
+  }
+
   onMount(() => {
     void (async () => {
       try {
@@ -368,7 +408,14 @@
   $effect(() => {
     const scanId = selectedId;
     const active = view;
-    if (!scanId || active === "treemap" || active === "docker") return;
+    if (
+      !scanId ||
+      active === "treemap" ||
+      active === "docker" ||
+      active === "duplicates" ||
+      active === "diff"
+    )
+      return;
     void loadViewData();
   });
 
@@ -420,7 +467,15 @@
       {#if selectedId}
         <a class="action" href={exportUrl(selectedId, "csv", scopeId)} download>Export</a>
       {/if}
+      {#if hasCompleted}
+        <button type="button" class="action" disabled={gcBusy} onclick={() => void handleGc()}>
+          {gcBusy ? "GC…" : "GC"}
+        </button>
+      {/if}
       <div class="status">
+        {#if gcMessage}
+          <span class="pill ok">{gcMessage}</span>
+        {/if}
         {#if healthError}
           <span class="pill err" title={healthError}>API unreachable</span>
         {:else if health}
@@ -462,6 +517,30 @@
         </div>
         <div class="view-host">
           <DockerPanel />
+        </div>
+      </section>
+    </main>
+  {:else if view === "duplicates" && selectedId}
+    <main class="solo">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Duplicates</h2>
+          <span class="muted">{viewSummary}</span>
+        </div>
+        <div class="view-host">
+          <DuplicatesPanel scanId={selectedId} scope={scopeId} />
+        </div>
+      </section>
+    </main>
+  {:else if view === "diff" && selectedId}
+    <main class="solo">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Diff</h2>
+          <span class="muted">{viewSummary}</span>
+        </div>
+        <div class="view-host">
+          <DiffPanel scanId={selectedId} scans={scans} />
         </div>
       </section>
     </main>

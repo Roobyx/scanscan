@@ -217,6 +217,79 @@ export function exportUrl(
   return `${BASE}/scans/${encodeURIComponent(id)}/export?${params.toString()}`;
 }
 
+export interface DupGroup {
+  key: string;
+  count: number;
+  size: number;
+  wasted: number;
+  items: NodeRecord[];
+}
+
+export interface DuplicatesQuery {
+  scope?: number;
+  mode?: string;
+  limit?: number;
+}
+
+export interface DuplicatesResponse {
+  mode: string;
+  groups: DupGroup[];
+}
+
+export function getDuplicates(id: string, opts?: DuplicatesQuery): Promise<DuplicatesResponse> {
+  const params = new URLSearchParams();
+  if (opts?.scope !== undefined) params.set("scope", String(opts.scope));
+  if (opts?.mode !== undefined) params.set("mode", opts.mode);
+  if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  const suffix = qs.length > 0 ? `?${qs}` : "";
+  return request<DuplicatesResponse>(`/scans/${encodeURIComponent(id)}/duplicates${suffix}`);
+}
+
+export interface DiffEntry {
+  path: string;
+  before: number;
+  after: number;
+  delta: number;
+  kind: string;
+}
+
+export interface DiffTotals {
+  before: number;
+  after: number;
+  delta: number;
+  added: number;
+  removed: number;
+}
+
+export interface DiffResult {
+  a: string;
+  b: string;
+  grown: DiffEntry[];
+  shrunk: DiffEntry[];
+  added: DiffEntry[];
+  removed: DiffEntry[];
+  totals: DiffTotals;
+}
+
+export function getDiff(id: string, otherId: string): Promise<DiffResult> {
+  return request<DiffResult>(
+    `/scans/${encodeURIComponent(id)}/diff/${encodeURIComponent(otherId)}`,
+  );
+}
+
+export interface GcResult {
+  removed: string[];
+}
+
+export function runGc(keep: number): Promise<GcResult> {
+  return request<GcResult>("/gc", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ keep }),
+  });
+}
+
 export async function getDockerContainers(): Promise<ContainerInfo[]> {
   const body = await request<{ containers: ContainerInfo[] }>("/docker/containers");
   return body.containers;
