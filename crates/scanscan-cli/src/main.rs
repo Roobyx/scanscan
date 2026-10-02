@@ -513,6 +513,10 @@ fn cmd_find(
     let (size_min, size_max) = parse_size_filter(size)?;
     let (mtime_after, mtime_before) = parse_mtime_filter(mtime)?;
     with_query(json, cli, path, |engine, scope| {
+        if dupe {
+            let groups = engine.duplicates(scope, "name+size", 200);
+            return Ok(json!({ "groups": groups }));
+        }
         let filters = FindFilters {
             size_min,
             size_max,
@@ -525,7 +529,7 @@ fn cmd_find(
         };
         let items = engine.find(scope, &filters);
         let records: Vec<_> = items.iter().map(NodeView::to_record).collect();
-        Ok(json!({ "items": records, "dupe": dupe, "owner": owner, "regex": regex }))
+        Ok(json!({ "items": records, "owner": owner, "regex": regex }))
     })
 }
 
@@ -612,45 +616,22 @@ fn cmd_diff(json: bool, cli: &Cli, a: &str, b: &str) -> anyhow::Result<()> {
     let store = open_store(cli)?;
     let reader_a = store.open(a)?;
     let reader_b = store.open(b)?;
-    let qa = QueryEngine::new(&reader_a);
-    let qb = QueryEngine::new(&reader_b);
-
-    let mut a_sizes = std::collections::HashMap::new();
-    for id in 0..reader_a.len() {
-        if let Some(node) = qa.node(id) {
-            if node.kind != Kind::Directory {
-                a_sizes.insert(node.name.clone(), node.size_alloc);
-            }
-        }
-    }
-
-    let mut grown = Vec::new();
-    let mut new_files = Vec::new();
-    for id in 0..reader_b.len() {
-        if let Some(node) = qb.node(id) {
-            if node.kind == Kind::Directory {
-                continue;
-            }
-            match a_sizes.remove(&node.name) {
-                Some(old) if node.size_alloc > old => grown.push(json!({
-                    "name": node.name, "before": old, "after": node.size_alloc,
-                    "delta": node.size_alloc - old,
-                })),
-                Some(_) => {}
-                None => new_files.push(json!({ "name": node.name, "size": node.size_alloc })),
-            }
-        }
-    }
-    let deleted: Vec<_> = a_sizes
-        .into_iter()
-        .map(|(name, size)| json!({ "name": name, "size": size }))
-        .collect();
-
-    let value = json!({ "a": a, "b": b, "grown": grown, "new": new_files, "deleted": deleted });
+    let result = scanscan_core::query::diff(&reader_a, &reader_b);
     if json {
-        println!("{}", serde_json::to_string(&value)?);
+        println!("{}", serde_json::to_string(&result)?);
     } else {
-        print_human(&value);
+        println!(
+            "before {:.2} GB -> after {:.2} GB (delta {:+.2} GB)",
+            result.totals.before as f64 / 1_073_741_824.0,
+            result.totals.after as f64 / 1_073_741_824.0,
+            result.totals.delta as f64 / 1_073_741_824.0,
+        );
+        for entry in result.grown.iter().take(20) {
+            println!("  +{:>14}  {}", entry.delta, entry.path);
+        }
+        for entry in result.removed.iter().take(20) {
+            println!("  -{:>14}  {}", entry.delta, entry.path);
+        }
     }
     Ok(())
 }

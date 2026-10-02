@@ -2,6 +2,18 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [0.4.0] - 2026-10-02
+
+### Added
+- Phase 3: metadata duplicate detection (name+size, optionally +mtime) with wasted-space ranking,
+  exposed via `query.duplicates`, `GET /scans/:id/duplicates`, `scanscan find --dupe`, and a
+  Duplicates view.
+- Snapshot diff/trend: `query.diff` joins two snapshots by relative path and reports
+  grown/shrunk/added/removed with totals; exposed via `GET /scans/:id/diff/:otherId`, `scanscan
+  diff`, and a Diff view.
+- Snapshot garbage collection (`snapshots.gc`, `POST /api/v1/gc`, `scanscan snapshots gc`) that
+  keeps the newest N completed snapshots.
+
 ## [0.3.0] - 2026-10-02
 
 ### Added

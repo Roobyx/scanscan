@@ -546,6 +546,216 @@ impl<'a> QueryEngine<'a> {
             children,
         }
     }
+
+    /// Groups of metadata-identical files (name+size, optionally +mtime).
+    pub fn duplicates(&self, scope: u32, mode: &str, limit: usize) -> Vec<DupGroup> {
+        let use_mtime = mode.contains("mtime");
+        let mut map: std::collections::HashMap<(String, u64, i64), Vec<u32>> =
+            std::collections::HashMap::new();
+        for id in self.reader.subtree_range(scope) {
+            let Some(rec) = self.reader.record(id) else {
+                continue;
+            };
+            if rec.kind.is_dir() || rec.size_alloc == 0 {
+                continue;
+            }
+            let name = self.reader.name(id).to_string();
+            let key = (name, rec.size_alloc, if use_mtime { rec.mtime_ms } else { 0 });
+            map.entry(key).or_default().push(id);
+        }
+
+        let mut groups: Vec<DupGroup> = map
+            .into_iter()
+            .filter(|(_, ids)| ids.len() > 1)
+            .map(|((name, size, _), ids)| {
+                let count = ids.len() as u64;
+                let items: Vec<NodeRecord> = ids
+                    .iter()
+                    .take(50)
+                    .filter_map(|id| self.node(*id))
+                    .map(|view| view.to_record())
+                    .collect();
+                DupGroup {
+                    key: format!("{name} ({size} B)"),
+                    count,
+                    size,
+                    wasted: size.saturating_mul(count.saturating_sub(1)),
+                    items,
+                }
+            })
+            .collect();
+        groups.sort_by(|a, b| b.wasted.cmp(&a.wasted));
+        groups.truncate(limit.max(1));
+        groups
+    }
+}
+
+/// A group of metadata-identical files.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DupGroup {
+    pub key: String,
+    pub count: u64,
+    pub size: u64,
+    pub wasted: u64,
+    pub items: Vec<NodeRecord>,
+}
+
+/// One path in a snapshot diff.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffEntry {
+    pub path: String,
+    pub before: u64,
+    pub after: u64,
+    pub delta: i64,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffTotals {
+    pub before: u64,
+    pub after: u64,
+    pub delta: i64,
+    pub added: u64,
+    pub removed: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffResult {
+    pub a: String,
+    pub b: String,
+    pub grown: Vec<DiffEntry>,
+    pub shrunk: Vec<DiffEntry>,
+    pub added: Vec<DiffEntry>,
+    pub removed: Vec<DiffEntry>,
+    pub totals: DiffTotals,
+}
+
+const PATH_MAP_CAP: usize = 2_000_000;
+
+/// Compare two snapshots by relative path (allocated bytes).
+pub fn diff(a: &IndexReader, b: &IndexReader) -> DiffResult {
+    let pa = path_sizes(a);
+    let pb = path_sizes(b);
+
+    let mut grown = Vec::new();
+    let mut shrunk = Vec::new();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+
+    for (path, after) in &pb {
+        match pa.get(path) {
+            Some(before) if after > before => grown.push(DiffEntry {
+                path: path.clone(),
+                before: *before,
+                after: *after,
+                delta: (*after - *before) as i64,
+                kind: "grown".into(),
+            }),
+            Some(before) if after < before => shrunk.push(DiffEntry {
+                path: path.clone(),
+                before: *before,
+                after: *after,
+                delta: (*before - *after) as i64,
+                kind: "shrunk".into(),
+            }),
+            Some(_) => {}
+            None => added.push(DiffEntry {
+                path: path.clone(),
+                before: 0,
+                after: *after,
+                delta: *after as i64,
+                kind: "added".into(),
+            }),
+        }
+    }
+    for (path, before) in &pa {
+        if !pb.contains_key(path) {
+            removed.push(DiffEntry {
+                path: path.clone(),
+                before: *before,
+                after: 0,
+                delta: *before as i64,
+                kind: "removed".into(),
+            });
+        }
+    }
+
+    grown.sort_by(|x, y| y.delta.cmp(&x.delta));
+    shrunk.sort_by(|x, y| y.delta.cmp(&x.delta));
+    added.sort_by(|x, y| y.after.cmp(&x.after));
+    removed.sort_by(|x, y| y.before.cmp(&x.before));
+
+    let before_total: u64 = pa.values().copied().sum();
+    let after_total: u64 = pb.values().copied().sum();
+    let added_total: u64 = added.iter().map(|e| e.after).sum();
+    let removed_total: u64 = removed.iter().map(|e| e.before).sum();
+
+    let cap = 500;
+    grown.truncate(cap);
+    shrunk.truncate(cap);
+    added.truncate(cap);
+    removed.truncate(cap);
+
+    DiffResult {
+        a: a.manifest().id.clone(),
+        b: b.manifest().id.clone(),
+        grown,
+        shrunk,
+        added,
+        removed,
+        totals: DiffTotals {
+            before: before_total,
+            after: after_total,
+            delta: after_total as i64 - before_total as i64,
+            added: added_total,
+            removed: removed_total,
+        },
+    }
+}
+
+fn path_sizes(reader: &IndexReader) -> std::collections::HashMap<String, u64> {
+    let mut map = std::collections::HashMap::new();
+    for root in 0..reader.len() {
+        let is_root = reader
+            .record(root)
+            .map(|r| r.parent == crate::index::NO_PARENT)
+            .unwrap_or(false);
+        if is_root {
+            collect_paths(reader, root, "", &mut map);
+        }
+    }
+    map
+}
+
+fn collect_paths(
+    reader: &IndexReader,
+    id: u32,
+    prefix: &str,
+    map: &mut std::collections::HashMap<String, u64>,
+) {
+    if map.len() >= PATH_MAP_CAP {
+        return;
+    }
+    let name = reader.name(id);
+    let path = if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    };
+    if let Some(rec) = reader.record(id) {
+        if !rec.kind.is_dir() {
+            map.insert(path.clone(), rec.size_alloc);
+        }
+    }
+    if reader.subtree_size(id) > 1 {
+        for child in reader.children(id) {
+            collect_paths(reader, child, &path, map);
+        }
+    }
 }
 
 fn kind_name(kind: Kind) -> &'static str {

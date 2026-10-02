@@ -162,6 +162,28 @@ impl Daemon {
                 let root = q.hierarchy(scope, depth, p.limit.unwrap_or(2000));
                 Ok(json!({ "scope": scope, "depth": depth, "root": root }))
             }
+            methods::QUERY_DUPLICATES => {
+                let p: DupParam = params(req)?;
+                let reader = self.open(&p.id)?;
+                let q = QueryEngine::new(&reader);
+                let mode = p.mode.unwrap_or_else(|| "name+size".to_string());
+                let groups = q.duplicates(p.scope.unwrap_or(0), &mode, p.limit.unwrap_or(200));
+                Ok(json!({ "mode": mode, "groups": groups }))
+            }
+            methods::QUERY_DIFF => {
+                let p: DiffParam = params(req)?;
+                let a = self.open(&p.a)?;
+                let b = self.open(&p.b)?;
+                to_value(crate::query::diff(&a, &b))
+            }
+            methods::SNAPSHOTS_GC => {
+                let p: GcParam = params(req)?;
+                let removed = self
+                    .store
+                    .gc(p.keep.unwrap_or(3))
+                    .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?;
+                Ok(json!({ "removed": removed }))
+            }
             methods::QUERY_SEARCH => {
                 let p: FindParam = params(req)?;
                 let reader = self.open(&p.id)?;
@@ -268,6 +290,29 @@ struct HierarchyParam {
     depth: Option<u32>,
     #[serde(default)]
     limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct DupParam {
+    id: String,
+    #[serde(default)]
+    scope: Option<u32>,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct DiffParam {
+    a: String,
+    b: String,
+}
+
+#[derive(Deserialize)]
+struct GcParam {
+    #[serde(default)]
+    keep: Option<usize>,
 }
 
 #[derive(Deserialize)]

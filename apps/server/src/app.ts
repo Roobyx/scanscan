@@ -309,6 +309,43 @@ export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Ho
     }
   });
 
+  app.get("/api/v1/scans/:id/duplicates", async (c) => {
+    try {
+      return c.json(
+        await core.call("query.duplicates", {
+          id: c.req.param("id"),
+          scope: num(c.req.query("scope"), 0),
+          mode: c.req.query("mode") ?? "name+size",
+          limit: num(c.req.query("limit"), 200),
+        }),
+      );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/scans/:id/diff/:otherId", async (c) => {
+    try {
+      return c.json(
+        await core.call("query.diff", {
+          a: c.req.param("otherId"),
+          b: c.req.param("id"),
+        }),
+      );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.post("/api/v1/gc", async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { keep?: number };
+      return c.json(await core.call("snapshots.gc", { keep: body.keep ?? 3 }));
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
   // ---- docker (read-only) ----
   app.get("/api/v1/docker/status", async (c) => {
     try {

@@ -204,6 +204,22 @@ impl Store {
         }
         Ok(())
     }
+
+    /// Delete completed snapshots beyond the newest `keep`.
+    pub fn gc(&self, keep: usize) -> Result<Vec<String>> {
+        let mut scans: Vec<ScanSummary> = self
+            .list()
+            .into_iter()
+            .filter(|s| s.state == ScanState::Completed)
+            .collect();
+        scans.sort_by(|a, b| b.started_at_ms.cmp(&a.started_at_ms));
+        let mut removed = Vec::new();
+        for scan in scans.into_iter().skip(keep) {
+            self.delete(&scan.id)?;
+            removed.push(scan.id);
+        }
+        Ok(removed)
+    }
 }
 
 fn run_scan(

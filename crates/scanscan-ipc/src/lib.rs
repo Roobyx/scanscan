@@ -35,6 +35,9 @@ pub mod methods {
     pub const QUERY_SEARCH: &str = "query.search";
     pub const QUERY_HISTOGRAM: &str = "query.histogram";
     pub const QUERY_DIFF: &str = "query.diff";
+    pub const QUERY_DUPLICATES: &str = "query.duplicates";
+
+    pub const SNAPSHOTS_GC: &str = "snapshots.gc";
 
     pub const DOCKER_CONTAINERS: &str = "docker.containers";
     pub const DOCKER_STATS: &str = "docker.stats";
