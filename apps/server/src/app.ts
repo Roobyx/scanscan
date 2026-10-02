@@ -386,7 +386,27 @@ export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Ho
 
   app.get("/api/v1/docker/mounts", async (c) => {
     try {
+      const scan = c.req.query("scan");
+      if (scan) {
+        return c.json(await core.call("docker.mountsFor", { id: scan }));
+      }
       return c.json(await core.call("docker.mounts"));
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/docker/images", async (c) => {
+    try {
+      return c.json(await core.call("docker.images"));
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/docker/volumes", async (c) => {
+    try {
+      return c.json(await core.call("docker.volumes"));
     } catch (error) {
       return coreError(String(error));
     }

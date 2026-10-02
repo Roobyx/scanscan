@@ -146,6 +146,22 @@ export interface DockerStats {
   blkWrite: number;
 }
 
+export interface ImageInfo {
+  id: string;
+  repoTags: string[];
+  size: number;
+  sharedSize: number;
+  containers: number;
+}
+
+export interface VolumeInfo {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  size?: number;
+  refCount?: number;
+}
+
 export interface HierarchyNode {
   id: number;
   name: string;

@@ -868,6 +868,29 @@ pub struct Heatmap {
     pub cells: Vec<Vec<HeatmapCell>>,
 }
 
+/// Resolve a slash-separated path (relative to the snapshot root) to a node id.
+///
+/// The root node's own name may be included or omitted (e.g. `/host/mnt/data`
+/// or `/mnt/data` both resolve against a snapshot whose root is `host`).
+pub fn resolve_path(reader: &IndexReader, path: &str) -> Option<u32> {
+    let trimmed = path.trim_matches('/');
+    if trimmed.is_empty() {
+        return Some(0);
+    }
+    let mut current = 0u32;
+    for component in trimmed.split('/').filter(|c| !c.is_empty()) {
+        if current == 0 && reader.name(0) == component {
+            continue;
+        }
+        let next = reader
+            .children(current)
+            .into_iter()
+            .find(|child| reader.name(*child) == component)?;
+        current = next;
+    }
+    Some(current)
+}
+
 fn dummy_record() -> crate::index::Record {
     crate::index::Record {
         parent: crate::index::NO_PARENT,

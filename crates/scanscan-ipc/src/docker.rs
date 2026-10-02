@@ -56,3 +56,27 @@ pub struct DockerStats {
     pub blk_read: u64,
     pub blk_write: u64,
 }
+
+/// An image summary from the read-only Docker Engine API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageInfo {
+    pub id: String,
+    pub repo_tags: Vec<String>,
+    pub size: u64,
+    pub shared_size: u64,
+    pub containers: i64,
+}
+
+/// A named volume summary from the read-only Docker Engine API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeInfo {
+    pub name: String,
+    pub driver: String,
+    pub mountpoint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_count: Option<i64>,
+}

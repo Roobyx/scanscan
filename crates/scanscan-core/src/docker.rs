@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::Value;
 
-use scanscan_ipc::{ContainerInfo, DockerStats, MountInfo, MountKind};
+use scanscan_ipc::{ContainerInfo, DockerStats, ImageInfo, MountInfo, MountKind, VolumeInfo};
 
 use crate::error::{CoreError, Result};
 
@@ -106,6 +106,24 @@ impl DockerCollector {
         Ok(out)
     }
 
+    /// Image list with sizes and dangling detection.
+    pub fn images(&self) -> Result<Vec<ImageInfo>> {
+        let value = self.get("/images/json")?;
+        let array = value.as_array().cloned().unwrap_or_default();
+        Ok(array.iter().map(parse_image).collect())
+    }
+
+    /// Named volumes with usage data where available.
+    pub fn volumes(&self) -> Result<Vec<VolumeInfo>> {
+        let value = self.get("/volumes")?;
+        let array = value
+            .get("Volumes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        Ok(array.iter().map(parse_volume).collect())
+    }
+
     fn get(&self, path: &str) -> Result<Value> {
         let body = http_get(&self.target, path)?;
         serde_json::from_slice(&body).map_err(CoreError::from)
@@ -166,6 +184,41 @@ fn parse_container(item: &Value) -> ContainerInfo {
         size_rw,
         size_root_fs,
         mounts,
+    }
+}
+
+fn parse_image(item: &Value) -> ImageInfo {
+    let repo_tags = item
+        .get("RepoTags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    ImageInfo {
+        id: item.get("Id").and_then(Value::as_str).unwrap_or("").to_string(),
+        repo_tags,
+        size: item.get("Size").and_then(Value::as_u64).unwrap_or(0),
+        shared_size: item.get("SharedSize").and_then(Value::as_u64).unwrap_or(0),
+        containers: item.get("Containers").and_then(Value::as_i64).unwrap_or(-1),
+    }
+}
+
+fn parse_volume(item: &Value) -> VolumeInfo {
+    let usage = item.get("UsageData");
+    VolumeInfo {
+        name: item.get("Name").and_then(Value::as_str).unwrap_or("").to_string(),
+        driver: item.get("Driver").and_then(Value::as_str).unwrap_or("").to_string(),
+        mountpoint: item
+            .get("Mountpoint")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        size: usage.and_then(|u| u.get("Size")).and_then(Value::as_u64),
+        ref_count: usage.and_then(|u| u.get("RefCount")).and_then(Value::as_i64),
     }
 }
 
