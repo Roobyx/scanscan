@@ -1,11 +1,26 @@
-//! Filesystem traversal abstraction.
+//! Filesystem traversal.
 //!
-//! `LinuxFs` (statx fast path) arrives in Phase 1; Phase 0 ships the trait and
-//! a portable `std::fs` implementation used on macOS/Windows and as a fallback.
+//! `scan()` performs a streaming pre-order walk: it emits each node to the
+//! [`IndexWriter`] as it is visited and keeps only O(depth) traversal state
+//! plus the hardlink set. Directory entries are read and `stat`-ed in
+//! parallel; the walk itself is sequential so output order (and therefore the
+//! contiguous-subtree invariant) is deterministic.
+//!
+//! `LinuxFs` (statx) and fully parallel traversal (jwalk-style) are later
+//! optimisations; the portable implementation below is correct on every
+//! platform.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+
+use globset::{Glob, GlobSet, GlobSetBuilder};
+use rayon::prelude::*;
 
 use crate::error::{CoreError, Result};
+use crate::index::{flags, IndexWriter, Kind, NodeInput, NO_PARENT};
+use scanscan_ipc::ScanOptions;
 
 /// Metadata captured for a single directory entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,15 +35,44 @@ pub struct EntryMeta {
     pub nlink: u64,
     pub dev: u64,
     pub ino: u64,
+    /// Set when this entry could not be `stat`-ed; the walk records it and moves on.
+    pub error: Option<String>,
+}
+
+impl EntryMeta {
+    fn errored(path: &Path, message: String) -> Self {
+        Self {
+            name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            path: path.to_path_buf(),
+            is_dir: false,
+            is_symlink: false,
+            size_apparent: 0,
+            size_alloc: 0,
+            mtime_ms: 0,
+            nlink: 1,
+            dev: 0,
+            ino: 0,
+            error: Some(message),
+        }
+    }
 }
 
 /// A filesystem implementation: the Linux fast path or the portable fallback.
 pub trait Filesystem: Send + Sync {
-    /// Read the direct entries of one directory. Order is unspecified.
+    /// Read the direct entries of one directory. `stat` failures are reported
+    /// per-entry via [`EntryMeta::error`] rather than failing the directory.
     fn read_dir(&self, dir: &Path) -> Result<Vec<EntryMeta>>;
 
     /// Metadata for a single path (does not follow symlinks).
     fn metadata(&self, path: &Path) -> Result<EntryMeta>;
+
+    /// Metadata following symlinks (used when `--follow-symlinks` is set).
+    fn metadata_follow(&self, path: &Path) -> Result<EntryMeta> {
+        self.metadata(path)
+    }
 }
 
 /// Portable walker built on `std::fs`.
@@ -54,7 +98,12 @@ impl PortableFs {
         #[cfg(unix)]
         let (size_alloc, nlink, dev, ino) = {
             use std::os::unix::fs::MetadataExt;
-            (meta.blocks().saturating_mul(512), meta.nlink(), meta.dev(), meta.ino())
+            (
+                meta.blocks().saturating_mul(512),
+                meta.nlink(),
+                meta.dev(),
+                meta.ino(),
+            )
         };
         #[cfg(not(unix))]
         let (size_alloc, nlink, dev, ino) = (meta.len(), 1, 0, 0);
@@ -70,59 +119,396 @@ impl PortableFs {
             nlink,
             dev,
             ino,
+            error: None,
         }
     }
 }
 
 impl Filesystem for PortableFs {
     fn read_dir(&self, dir: &Path) -> Result<Vec<EntryMeta>> {
-        let mut out = Vec::new();
+        let mut paths: Vec<PathBuf> = Vec::new();
         for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let meta = std::fs::symlink_metadata(&path)?;
-            out.push(PortableFs::meta_for(&path, meta));
+            match entry {
+                Ok(e) => paths.push(e.path()),
+                Err(e) => paths.push(PathBuf::from(format!("{}/<unreadable:{e}>", dir.display()))),
+            }
         }
-        Ok(out)
+
+        let mut metas: Vec<EntryMeta> = paths
+            .par_iter()
+            .map(|p| match std::fs::symlink_metadata(p) {
+                Ok(meta) => PortableFs::meta_for(p, meta),
+                Err(e) => EntryMeta::errored(p, e.to_string()),
+            })
+            .collect();
+        // Parallel collection preserves order.
+        metas.shrink_to_fit();
+        Ok(metas)
     }
 
     fn metadata(&self, path: &Path) -> Result<EntryMeta> {
         let meta = std::fs::symlink_metadata(path)?;
         Ok(PortableFs::meta_for(path, meta))
     }
+
+    fn metadata_follow(&self, path: &Path) -> Result<EntryMeta> {
+        let meta = std::fs::metadata(path)?;
+        Ok(PortableFs::meta_for(path, meta))
+    }
 }
 
 /// Resolve the platform-appropriate filesystem implementation.
-pub fn platform_fs() -> Result<Box<dyn Filesystem>> {
-    #[cfg(target_os = "linux")]
-    {
-        // Phase 1 swaps this for `LinuxFs` (statx). Until then the portable
-        // walker keeps behaviour correct on every platform.
-        Ok(Box::new(PortableFs))
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        Ok(Box::new(PortableFs))
-    }
+pub fn platform_fs() -> Box<dyn Filesystem> {
+    Box::new(PortableFs)
 }
 
 /// Canonicalize a root, rejecting paths that do not exist.
 pub fn canonical_root(root: &str) -> Result<PathBuf> {
     let path = PathBuf::from(root);
-    std::fs::canonicalize(&path).map_err(|e| {
-        CoreError::Config(format!("invalid root '{}': {e}", path.display()))
-    })
+    std::fs::canonicalize(&path)
+        .map_err(|e| CoreError::Config(format!("invalid root '{}': {e}", path.display())))
+}
+
+/// A throttled progress sample.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Progress {
+    pub files: u64,
+    pub dirs: u64,
+    pub bytes_apparent: u64,
+    pub bytes_alloc: u64,
+    pub errors: u64,
+    pub current_path: String,
+    pub elapsed_ms: u64,
+}
+
+/// Build the exclusion matcher from options, adding pseudo-fs defaults when
+/// scanning `/`.
+pub fn build_exclusions(options: &ScanOptions, roots: &[PathBuf]) -> Result<GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    for pattern in &options.exclusions {
+        builder.add(Glob::new(pattern).map_err(|e| CoreError::Config(format!("bad glob '{pattern}': {e}")))?);
+    }
+    if roots.iter().any(|r| r == Path::new("/")) {
+        for pseudo in ["/proc", "/sys", "/dev", "/run", "/snap", "/proc/**", "/sys/**", "/dev/**", "/run/**", "/snap/**"] {
+            builder.add(Glob::new(pseudo).expect("static glob"));
+        }
+    }
+    builder
+        .build()
+        .map_err(|e| CoreError::Config(format!("invalid exclusions: {e}")))
+}
+
+/// Stream a pre-order scan of `roots` into `writer`.
+pub fn scan(
+    writer: &mut IndexWriter,
+    roots: &[PathBuf],
+    options: &ScanOptions,
+    fs: &dyn Filesystem,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(&Progress),
+) -> Result<()> {
+    let exclude = build_exclusions(options, roots)?;
+    let started = Instant::now();
+    let mut walker = Walker {
+        fs,
+        options,
+        exclude,
+        writer,
+        hardlinks: HashSet::new(),
+        visited: HashSet::new(),
+        cancel,
+        progress,
+        started,
+        last_emit: Instant::now(),
+        current_path: String::new(),
+    };
+
+    for root in roots {
+        walker.walk_root(root)?;
+    }
+    walker.tick(Path::new(""));
+    Ok(())
+}
+
+struct Walker<'a> {
+    fs: &'a dyn Filesystem,
+    options: &'a ScanOptions,
+    exclude: GlobSet,
+    writer: &'a mut IndexWriter,
+    hardlinks: HashSet<(u64, u64)>,
+    visited: HashSet<(u64, u64)>,
+    cancel: &'a AtomicBool,
+    progress: &'a mut dyn FnMut(&Progress),
+    started: Instant,
+    last_emit: Instant,
+    current_path: String,
+}
+
+impl Walker<'_> {
+    fn check_cancel(&self) -> Result<()> {
+        if self.cancel.load(Ordering::Relaxed) {
+            Err(CoreError::Scan("scan cancelled".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn tick(&mut self, path: &Path) {
+        if !path.as_os_str().is_empty() {
+            self.current_path = path.to_string_lossy().into_owned();
+        }
+        if self.last_emit.elapsed().as_millis() < 200 {
+            return;
+        }
+        self.last_emit = Instant::now();
+        let s = self.writer.stats();
+        (self.progress)(&Progress {
+            files: s.files,
+            dirs: s.dirs,
+            bytes_apparent: s.bytes_apparent,
+            bytes_alloc: s.bytes_alloc,
+            errors: s.errors,
+            current_path: self.current_path.clone(),
+            elapsed_ms: self.started.elapsed().as_millis() as u64,
+        });
+    }
+
+    fn excluded(&self, path: &Path) -> bool {
+        self.exclude.is_match(path)
+    }
+
+    fn walk_root(&mut self, path: &Path) -> Result<()> {
+        let meta = self
+            .fs
+            .metadata(path)
+            .map_err(|e| CoreError::Scan(format!("cannot stat root '{}': {e}", path.display())))?;
+        let root_dev = meta.dev;
+        self.walk_entry(meta, NO_PARENT, root_dev)
+    }
+
+    fn walk_entry(&mut self, entry: EntryMeta, parent: u32, root_dev: u64) -> Result<()> {
+        self.check_cancel()?;
+        if let Some(err) = &entry.error {
+            self.writer.push_error(entry.path.to_string_lossy(), err.clone());
+            self.writer.push(NodeInput {
+                parent,
+                name: &entry.name,
+                kind: Kind::Special,
+                flags: flags::ERROR,
+                children: 0,
+                size_app: 0,
+                size_alloc: 0,
+                mtime_ms: 0,
+                uid: 0,
+                gid: 0,
+                mode: 0,
+            })?;
+            self.tick(&entry.path);
+            return Ok(());
+        }
+
+        if entry.is_symlink {
+            if !self.options.follow_symlinks {
+                return self.emit_symlink(&entry, parent);
+            }
+            match self.fs.metadata_follow(&entry.path) {
+                Ok(target) => {
+                    let mut followed = target;
+                    followed.name = entry.name.clone();
+                    followed.path = entry.path.clone();
+                    if followed.is_dir {
+                        if !self.visited.insert((followed.dev, followed.ino)) {
+                            return self.emit_symlink(&entry, parent);
+                        }
+                        return self.emit_dir(followed, parent, root_dev, flags::DIR | flags::SYMLINK);
+                    }
+                    return self.emit_file(followed, parent);
+                }
+                Err(e) => {
+                    self.writer
+                        .push_error(entry.path.to_string_lossy(), e.to_string());
+                    return self.emit_symlink(&entry, parent);
+                }
+            }
+        }
+
+        if entry.is_dir {
+            let mut extra = flags::DIR;
+            if entry.dev != root_dev {
+                extra |= flags::MOUNT_POINT;
+                if self.options.one_file_system {
+                    self.writer.push(NodeInput {
+                        parent,
+                        name: &entry.name,
+                        kind: Kind::Directory,
+                        flags: extra,
+                        children: 0,
+                        size_app: 0,
+                        size_alloc: 0,
+                        mtime_ms: entry.mtime_ms,
+                        uid: 0,
+                        gid: 0,
+                        mode: 0,
+                    })?;
+                    self.tick(&entry.path);
+                    return Ok(());
+                }
+            }
+            self.emit_dir(entry, parent, root_dev, extra)
+        } else {
+            self.emit_file(entry, parent)
+        }
+    }
+
+    fn emit_symlink(&mut self, entry: &EntryMeta, parent: u32) -> Result<()> {
+        self.writer.push(NodeInput {
+            parent,
+            name: &entry.name,
+            kind: Kind::Symlink,
+            flags: flags::SYMLINK,
+            children: 0,
+            size_app: 0,
+            size_alloc: 0,
+            mtime_ms: entry.mtime_ms,
+            uid: 0,
+            gid: 0,
+            mode: 0,
+        })?;
+        self.tick(&entry.path);
+        Ok(())
+    }
+
+    fn emit_dir(&mut self, entry: EntryMeta, parent: u32, root_dev: u64, extra: u8) -> Result<()> {
+        let entries = match self.fs.read_dir(&entry.path) {
+            Ok(e) => e,
+            Err(e) => {
+                self.writer.push_error(entry.path.to_string_lossy(), e.to_string());
+                self.writer.push(NodeInput {
+                    parent,
+                    name: &entry.name,
+                    kind: Kind::Directory,
+                    flags: extra | flags::ERROR,
+                    children: 0,
+                    size_app: 0,
+                    size_alloc: 0,
+                    mtime_ms: entry.mtime_ms,
+                    uid: 0,
+                    gid: 0,
+                    mode: 0,
+                })?;
+                self.tick(&entry.path);
+                return Ok(());
+            }
+        };
+
+        let kept: Vec<EntryMeta> = entries
+            .into_iter()
+            .filter(|e| !self.excluded(&e.path))
+            .collect();
+        let child_count = kept.len() as u32;
+
+        let id = self.writer.push(NodeInput {
+            parent,
+            name: &entry.name,
+            kind: Kind::Directory,
+            flags: extra,
+            children: child_count,
+            size_app: 0,
+            size_alloc: 0,
+            mtime_ms: entry.mtime_ms,
+            uid: 0,
+            gid: 0,
+            mode: 0,
+        })?;
+        self.tick(&entry.path);
+
+        for child in kept {
+            self.walk_entry(child, id, root_dev)?;
+        }
+        Ok(())
+    }
+
+    fn emit_file(&mut self, entry: EntryMeta, parent: u32) -> Result<()> {
+        let mut flags = 0u8;
+        let mut size_alloc = entry.size_alloc;
+        let mut size_app = entry.size_apparent;
+
+        if entry.nlink > 1 && !self.hardlinks.insert((entry.dev, entry.ino)) {
+            // Later hardlinks own no bytes so totals count the inode once.
+            flags |= flags::HARDLINK_DUP;
+            size_alloc = 0;
+            size_app = 0;
+        }
+        if entry.size_alloc < entry.size_apparent {
+            flags |= flags::SPARSE;
+        }
+
+        self.writer.push(NodeInput {
+            parent,
+            name: &entry.name,
+            kind: Kind::File,
+            flags,
+            children: 0,
+            size_app,
+            size_alloc,
+            mtime_ms: entry.mtime_ms,
+            uid: 0,
+            gid: 0,
+            mode: 0,
+        })?;
+        self.tick(&entry.path);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::index::{IndexReader, ManifestSeed};
+
+    fn fixture(dir: &Path) {
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.txt"), vec![0u8; 1000]).unwrap();
+        std::fs::write(dir.join("sub/b.bin"), vec![0u8; 2000]).unwrap();
+    }
 
     #[test]
-    fn reads_current_directory() {
+    fn scans_fixture_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        fixture(tmp.path());
+        let root = tmp.path().to_path_buf();
+
+        let snap = tmp.path().join("snap");
+        let mut writer = IndexWriter::create(&snap).unwrap();
+        let options = ScanOptions::new(vec![root.to_string_lossy().into_owned()]);
         let fs = PortableFs;
-        let entries = fs.read_dir(Path::new(".")).expect("read_dir");
-        assert!(!entries.is_empty());
+        let mut progress = |_: &Progress| {};
+        scan(
+            &mut writer,
+            std::slice::from_ref(&root),
+            &options,
+            &fs,
+            &AtomicBool::new(false),
+            &mut progress,
+        )
+        .unwrap();
+        let manifest = writer
+            .finish(ManifestSeed {
+                id: "t".into(),
+                parent_id: None,
+                roots: vec![root.to_string_lossy().into_owned()],
+                started_at_ms: 0,
+            })
+            .unwrap();
+
+        // root dir + sub dir + 2 files
+        assert_eq!(manifest.node_count, 4);
+        assert_eq!(manifest.stats.files, 2);
+        assert_eq!(manifest.stats.dirs, 2);
+        assert_eq!(manifest.stats.bytes_apparent, 3000);
+
+        let reader = IndexReader::open(&snap).unwrap();
+        assert_eq!(reader.subtree_size(0), 4);
     }
 
     #[test]

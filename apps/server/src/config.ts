@@ -9,6 +9,7 @@ export interface ServerConfig {
   dockerEnabled: boolean;
   webDir?: string;
   coreSocket: string;
+  coreBin?: string;
   version: string;
 }
 
@@ -49,6 +50,7 @@ export function readConfig(env: EnvLike = process.env): ServerConfig {
     dockerEnabled: ["1", "true", "yes", "on"].includes((env.SCANSCAN_DOCKER ?? "").toLowerCase()),
     webDir: env.SCANSCAN_WEB_DIR,
     coreSocket: env.SCANSCAN_CORE_SOCKET ?? "/tmp/scanscan.sock",
+    coreBin: env.SCANSCAN_CORE_BIN,
     version: readPackageVersion(),
   };
 }

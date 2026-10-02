@@ -1,0 +1,219 @@
+<script lang="ts">
+  import { isTerminalState } from "@scanscan/api-types";
+  import type { ScanSummary } from "@scanscan/api-types";
+
+  import { createScan, errorMessage, getScan } from "../lib/api.js";
+  import { formatBytes } from "../lib/format.js";
+
+  interface Props {
+    oncreated: (scanId: string) => void;
+  }
+
+  let { oncreated }: Props = $props();
+
+  let rootsText = $state("/");
+  let scan = $state<ScanSummary | null>(null);
+  let error = $state<string | null>(null);
+  let busy = $state(false);
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  function stopPolling(): void {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  function finish(result: ScanSummary): void {
+    busy = false;
+    if (result.state === "completed") {
+      oncreated(result.id);
+    } else {
+      error = `Scan ${result.state}.`;
+    }
+  }
+
+  async function poll(id: string): Promise<void> {
+    try {
+      const latest = await getScan(id);
+      scan = latest;
+      if (isTerminalState(latest.state)) {
+        stopPolling();
+        finish(latest);
+      }
+    } catch (cause) {
+      stopPolling();
+      busy = false;
+      error = errorMessage(cause);
+    }
+  }
+
+  function startPolling(id: string): void {
+    stopPolling();
+    timer = setInterval(() => {
+      void poll(id);
+    }, 1000);
+  }
+
+  async function submit(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    if (busy) return;
+    error = null;
+    const roots = rootsText
+      .split(/[\n,]+/)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (roots.length === 0) {
+      error = "Enter at least one root path.";
+      return;
+    }
+    busy = true;
+    scan = null;
+    try {
+      const created = await createScan(roots);
+      scan = created;
+      if (isTerminalState(created.state)) {
+        finish(created);
+      } else {
+        startPolling(created.id);
+      }
+    } catch (cause) {
+      busy = false;
+      error = errorMessage(cause);
+    }
+  }
+
+  $effect(() => () => stopPolling());
+</script>
+
+<section class="launcher">
+  <h2>Start a scan</h2>
+  <p class="hint">Read-only. One root per line, or comma-separated.</p>
+  <form onsubmit={submit}>
+    <input
+      type="text"
+      bind:value={rootsText}
+      placeholder="/var, /home"
+      aria-label="Root paths"
+      disabled={busy}
+    />
+    <button type="submit" disabled={busy}>{busy ? "Scanning…" : "Scan"}</button>
+  </form>
+
+  {#if error}
+    <p class="error" role="alert">{error}</p>
+  {/if}
+
+  {#if scan}
+    <dl class="progress">
+      <div>
+        <dt>State</dt>
+        <dd class:ok={scan.state === "completed"} class:err={scan.state === "failed"}>
+          {scan.state}
+        </dd>
+      </div>
+      <div><dt>Files</dt><dd>{scan.files.toLocaleString()}</dd></div>
+      <div><dt>Dirs</dt><dd>{scan.dirs.toLocaleString()}</dd></div>
+      <div><dt>Apparent</dt><dd>{formatBytes(scan.bytesApparent)}</dd></div>
+      <div><dt>Allocated</dt><dd>{formatBytes(scan.bytesAlloc)}</dd></div>
+      <div><dt>Errors</dt><dd>{scan.errors.toLocaleString()}</dd></div>
+    </dl>
+  {/if}
+</section>
+
+<style>
+  .launcher {
+    width: min(420px, 90vw);
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+
+  h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.1rem;
+  }
+
+  .hint {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  form {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+
+  input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  form button {
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: #0b0e14;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  form button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .error {
+    margin: 0.75rem 0 0;
+    color: var(--err);
+    font-size: 0.8rem;
+  }
+
+  .progress {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem 1rem;
+    margin: 1rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .progress div {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  dt {
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  dd.ok {
+    color: var(--ok);
+  }
+
+  dd.err {
+    color: var(--err);
+  }
+</style>

@@ -2,6 +2,21 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [0.2.0] - 2026-10-02
+
+### Added
+- Phase 1 MVP: streaming pre-order Rust scanner with parallel `stat`, hardlink dedup, sparse-file
+  and mount-boundary flags, exclusions (glob + pseudo-fs defaults), per-entry error recording, and
+  throttled progress.
+- Snapshot index format v1 (`manifest.json` + mmap'd `nodes.bin`/`names.bin`/`subtree.bin`) with
+  `subtree_size` computed on the way back up, plus a query engine (children, top-N, extension
+  histogram, depth-limited tiles) and a squarified treemap layout (area/overlap property tests).
+- UDS JSON-RPC daemon (`scans.*`, `tree.*`, `query.*`, `docker.*`) and a full CLI
+  (`scan|daemon|ls|du|top|find|tree|ext|diff|docker|export|snapshots|config`).
+- Read-only Docker Engine API collector (containers, sizes, mounts) over the Unix socket.
+- Server REST/SSE wiring to the core over a persistent UDS JSON-RPC client, and a Svelte 5 web
+  client: canvas treemap with drill-down, ranked table, breadcrumbs, and a scan launcher.
+
 ## [0.1.0] - 2026-10-02
 
 ### Added

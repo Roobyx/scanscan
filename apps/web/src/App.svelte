@@ -1,39 +1,184 @@
 <script lang="ts">
+  import type { HealthResponse, NodeRecord, ScanSummary, Tile } from "@scanscan/api-types";
   import { onMount } from "svelte";
 
-  import { formatBytes, percent } from "./lib/format.js";
+  import Breadcrumb from "./components/Breadcrumb.svelte";
+  import RankedTable from "./components/RankedTable.svelte";
+  import ScanLauncher from "./components/ScanLauncher.svelte";
+  import Treemap from "./components/Treemap.svelte";
+  import { errorMessage, getChildren, getHealth, getScan, getTiles, listScans } from "./lib/api.js";
+  import type { ColorMode } from "./lib/color.js";
+  import { formatBytes } from "./lib/format.js";
 
-  type Health = {
-    status: string;
-    protocol: number;
-    core: { connected: boolean; socket: string };
-  };
+  interface Crumb {
+    id: number;
+    name: string;
+  }
 
-  type Region = { name: string; size: number; color: string };
+  let health = $state<HealthResponse | null>(null);
+  let healthError = $state<string | null>(null);
+  let scans = $state<ScanSummary[]>([]);
+  let selectedId = $state<string | null>(null);
 
-  let health = $state<Health | null>(null);
+  let scopePath = $state<Crumb[]>([]);
+  let scopeId = $state(0);
+
+  let tiles = $state<Tile[]>([]);
+  let children = $state<NodeRecord[]>([]);
+  let childTotal = $state(0);
+  let truncated = $state(false);
+
+  let colorMode = $state<ColorMode>("size");
+  let loading = $state(false);
   let error = $state<string | null>(null);
 
-  // Placeholder dataset until the core serves real tiles (Phase 1).
-  const regions: Region[] = [
-    { name: "/var/lib/docker", size: 412 * 1024 ** 3, color: "#4f8cff" },
-    { name: "/home", size: 268 * 1024 ** 3, color: "#3ddc97" },
-    { name: "/usr", size: 96 * 1024 ** 3, color: "#ffb454" },
-    { name: "/var/log", size: 22 * 1024 ** 3, color: "#b98cff" },
-    { name: "/opt", size: 14 * 1024 ** 3, color: "#ff6b6b" },
-    { name: "/etc", size: 3 * 1024 ** 3, color: "#5ad1e6" },
-  ];
+  let treemapHost = $state<HTMLDivElement | null>(null);
+  let hostW = $state(0);
+  let hostH = $state(0);
+  let requestSeq = 0;
 
-  const total = $derived(regions.reduce((sum, r) => sum + r.size, 0));
+  function bucket(value: number): number {
+    if (value <= 0) return 0;
+    return Math.max(256, Math.round(value / 128) * 128);
+  }
 
-  onMount(async () => {
+  const tileW = $derived(bucket(hostW));
+  const tileH = $derived(bucket(hostH));
+  const scopeLabel = $derived(scopePath[scopePath.length - 1]?.name ?? "/");
+  const totalBytes = $derived(tiles.reduce((sum, tile) => sum + tile.size, 0));
+
+  async function loadScans(): Promise<void> {
     try {
-      const res = await fetch("/api/v1/health");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      health = (await res.json()) as Health;
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      scans = await listScans();
+    } catch (cause) {
+      error = errorMessage(cause);
     }
+  }
+
+  async function selectScan(id: string): Promise<void> {
+    selectedId = id;
+    scopeId = 0;
+    let summary = scans.find((scan) => scan.id === id) ?? null;
+    if (!summary) {
+      try {
+        summary = await getScan(id);
+      } catch (cause) {
+        error = errorMessage(cause);
+      }
+    }
+    scopePath = [{ id: 0, name: summary?.roots[0] ?? "/" }];
+  }
+
+  async function handleCreated(id: string): Promise<void> {
+    await loadScans();
+    await selectScan(id);
+  }
+
+  async function loadScope(
+    scanId: string,
+    scope: number,
+    width: number,
+    height: number,
+    color: ColorMode,
+  ): Promise<void> {
+    const seq = requestSeq + 1;
+    requestSeq = seq;
+    loading = true;
+    error = null;
+    try {
+      const [tilesResponse, childrenResponse] = await Promise.all([
+        getTiles(scanId, { scope, depth: 2, w: width, h: height, color }),
+        getChildren(scanId, scope, { sort: "size", limit: 200 }),
+      ]);
+      if (seq !== requestSeq) return;
+      tiles = tilesResponse.tiles;
+      truncated = tilesResponse.truncated;
+      children = childrenResponse.items;
+      childTotal = childrenResponse.total;
+      const root = scopePath[0];
+      if (scopePath.length === 1 && root && root.id !== tilesResponse.scope) {
+        scopePath = [{ id: tilesResponse.scope, name: root.name }];
+      }
+    } catch (cause) {
+      if (seq !== requestSeq) return;
+      error = errorMessage(cause);
+    } finally {
+      if (seq === requestSeq) loading = false;
+    }
+  }
+
+  function pushScope(id: number, name: string): void {
+    scopePath = [...scopePath, { id, name }];
+    scopeId = id;
+  }
+
+  async function openTile(tile: Tile): Promise<void> {
+    const scanId = selectedId;
+    if (!scanId) return;
+    try {
+      const response = await getChildren(scanId, tile.node, { limit: 1 });
+      if (response.total === 0) return;
+      pushScope(tile.node, tile.name);
+    } catch (cause) {
+      error = errorMessage(cause);
+    }
+  }
+
+  function openNode(node: NodeRecord): void {
+    if (node.kind !== "directory") return;
+    if (node.children <= 0 && node.hasChildren !== true) return;
+    pushScope(node.id, node.name);
+  }
+
+  function navigate(index: number): void {
+    const target = scopePath[index];
+    if (!target) return;
+    scopePath = scopePath.slice(0, index + 1);
+    scopeId = target.id;
+  }
+
+  function handleScanChange(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    if (value.length > 0) void selectScan(value);
+  }
+
+  onMount(() => {
+    void (async () => {
+      try {
+        health = await getHealth();
+      } catch (cause) {
+        healthError = errorMessage(cause);
+      }
+      await loadScans();
+      const completed = scans
+        .filter((scan) => scan.state === "completed")
+        .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs));
+      const newest = completed[0];
+      if (newest) await selectScan(newest.id);
+    })();
+  });
+
+  $effect(() => {
+    const host = treemapHost;
+    if (!host) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      hostW = entry.contentRect.width;
+      hostH = entry.contentRect.height;
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    const scanId = selectedId;
+    const scope = scopeId;
+    const width = tileW;
+    const height = tileH;
+    const color = colorMode;
+    if (!scanId || width <= 0 || height <= 0) return;
+    void loadScope(scanId, scope, width, height, color);
   });
 </script>
 
@@ -43,57 +188,77 @@
       <span class="logo">▚</span>
       <h1>scanscan</h1>
     </div>
-    <div class="status">
-      {#if error}
-        <span class="pill err">API unreachable</span>
-      {:else if health}
-        <span class="pill ok">API {health.status}</span>
-        <span class="pill {health.core.connected ? 'ok' : 'muted'}">
-          core {health.core.connected ? "connected" : "idle"}
-        </span>
-      {:else}
-        <span class="pill muted">connecting…</span>
+    <div class="controls">
+      {#if scans.length > 0}
+        <select value={selectedId ?? ""} onchange={handleScanChange} aria-label="Scan">
+          <option value="" disabled>Select scan</option>
+          {#each scans as scan (scan.id)}
+            <option value={scan.id}>{scan.roots.join(", ")} · {scan.state}</option>
+          {/each}
+        </select>
       {/if}
+      <div class="toggle" role="group" aria-label="Color mode">
+        <button type="button" class:active={colorMode === "size"} onclick={() => (colorMode = "size")}>
+          Size
+        </button>
+        <button type="button" class:active={colorMode === "ext"} onclick={() => (colorMode = "ext")}>
+          Extension
+        </button>
+      </div>
+      <div class="status">
+        {#if healthError}
+          <span class="pill err" title={healthError}>API unreachable</span>
+        {:else if health}
+          <span class="pill ok">API {health.status}</span>
+          <span class="pill" class:ok={health.core.connected} class:muted={!health.core.connected}>
+            core {health.core.connected ? "connected" : "idle"}
+          </span>
+        {:else}
+          <span class="pill muted">connecting…</span>
+        {/if}
+      </div>
     </div>
   </header>
 
-  <main>
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Disk usage</h2>
-        <span class="muted">{formatBytes(total)} total · placeholder data</span>
-      </div>
-      <div class="treemap">
-        {#each regions as region (region.name)}
-          <div
-            class="cell"
-            style="flex-grow: {region.size}; background: {region.color}"
-            title="{region.name} — {formatBytes(region.size)}"
-          >
-            <span class="cell-label">{region.name}</span>
-            <span class="cell-size">{formatBytes(region.size)}</span>
-            <span class="cell-pct">{percent(region.size, total).toFixed(1)}%</span>
+  {#if !selectedId}
+    <main class="empty-main">
+      <ScanLauncher oncreated={handleCreated} />
+    </main>
+  {:else}
+    <main>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="crumbs">
+            <Breadcrumb path={scopePath} onnavigate={navigate} />
           </div>
-        {/each}
-      </div>
-    </section>
+          <span class="muted">{formatBytes(totalBytes)}{truncated ? " · truncated" : ""}</span>
+        </div>
+        <div class="canvas-host" bind:this={treemapHost}>
+          {#if loading && tiles.length === 0}
+            <p class="state">Loading tiles…</p>
+          {:else if error}
+            <p class="state err">{error}</p>
+          {:else if tiles.length === 0}
+            <p class="state">No tiles in {scopeLabel}.</p>
+          {:else}
+            <Treemap {tiles} {colorMode} onselect={openTile} />
+          {/if}
+        </div>
+      </section>
 
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Largest directories</h2>
-        <span class="muted">ranked by allocated size</span>
-      </div>
-      <ul class="ranked">
-        {#each [...regions].sort((a, b) => b.size - a.size) as region (region.name)}
-          <li>
-            <span class="swatch" style="background: {region.color}"></span>
-            <span class="rank-name">{region.name}</span>
-            <span class="rank-size">{formatBytes(region.size)}</span>
-          </li>
-        {/each}
-      </ul>
-    </section>
-  </main>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Ranked</h2>
+          <span class="muted">{childTotal.toLocaleString()} items</span>
+        </div>
+        {#if loading && children.length === 0}
+          <p class="state">Loading…</p>
+        {:else}
+          <RankedTable items={children} onselect={openNode} />
+        {/if}
+      </section>
+    </main>
+  {/if}
 
   <footer>
     <span>protocol v{health?.protocol ?? "—"}</span>
@@ -112,6 +277,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 1rem;
     padding: 0.75rem 1rem;
     border-bottom: 1px solid var(--border);
     background: var(--panel);
@@ -134,6 +300,46 @@
     letter-spacing: 0.02em;
   }
 
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  select {
+    max-width: 18rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+  }
+
+  .toggle {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .toggle button {
+    padding: 0.3rem 0.6rem;
+    border: none;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .toggle button.active {
+    background: var(--accent);
+    color: #0b0e14;
+  }
+
   .status {
     display: flex;
     gap: 0.5rem;
@@ -141,9 +347,9 @@
 
   .pill {
     padding: 0.2rem 0.55rem;
+    border: 1px solid var(--border);
     border-radius: 999px;
     font-size: 0.75rem;
-    border: 1px solid var(--border);
   }
 
   .pill.ok {
@@ -170,93 +376,60 @@
     min-height: 0;
   }
 
+  main.empty-main {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .panel {
     display: flex;
     flex-direction: column;
-    background: var(--panel);
+    min-height: 0;
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 10px;
-    overflow: hidden;
-    min-height: 0;
+    background: var(--panel);
   }
 
   .panel-head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1rem;
+    gap: 0.75rem;
+    min-height: 2.6rem;
+    padding: 0.6rem 0.75rem;
     border-bottom: 1px solid var(--border);
   }
 
   .panel-head h2 {
     margin: 0;
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
     color: var(--muted);
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
-  .treemap {
-    flex: 1;
+  .crumbs {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .canvas-host {
+    position: relative;
     display: flex;
-    gap: 2px;
-    padding: 2px;
+    flex: 1;
     min-height: 0;
   }
 
-  .cell {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    gap: 0.1rem;
-    padding: 0.5rem;
-    min-width: 0;
-    overflow: hidden;
-    color: #0b0e14;
-    font-weight: 600;
-  }
-
-  .cell-label {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .cell-size,
-  .cell-pct {
-    font-size: 0.7rem;
-    opacity: 0.75;
-  }
-
-  .ranked {
-    list-style: none;
-    margin: 0;
-    padding: 0.5rem;
-    overflow: auto;
-  }
-
-  .ranked li {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.5rem;
-    border-radius: 6px;
-  }
-
-  .ranked li:hover {
-    background: var(--panel-2);
-  }
-
-  .swatch {
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-  }
-
-  .rank-size {
+  .state {
+    margin: auto;
+    padding: 1rem;
     color: var(--muted);
-    font-variant-numeric: tabular-nums;
+  }
+
+  .state.err {
+    color: var(--err);
   }
 
   footer {

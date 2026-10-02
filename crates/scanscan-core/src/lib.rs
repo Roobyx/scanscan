@@ -1,11 +1,14 @@
-//! scanscan core library: scanner, index, query engine and Docker collector.
-//!
-//! Phase 0 establishes the crate surface and the filesystem abstraction. The
-//! streaming scanner, CAS block store and query engine land in Phase 1.
+//! scanscan core library: scanner, index, query engine, Docker collector,
+//! snapshot catalog and the JSON-RPC daemon.
 
 pub mod config;
+pub mod daemon;
+pub mod docker;
 pub mod error;
+pub mod index;
+pub mod query;
 pub mod scanner;
+pub mod store;
 
 pub use config::Config;
 pub use error::{CoreError, Result};
