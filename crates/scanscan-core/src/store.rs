@@ -117,6 +117,11 @@ impl Store {
         if options.roots.is_empty() {
             return Err(CoreError::Config("scan requires at least one root".into()));
         }
+        let mut options = options;
+        // Never index the store's own data directory, even when a root contains it.
+        let data_dir = self.data_dir.to_string_lossy().into_owned();
+        options.exclusions.push(data_dir.clone());
+        options.exclusions.push(format!("{data_dir}/**"));
         let roots: Vec<PathBuf> = options
             .roots
             .iter()

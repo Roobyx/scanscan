@@ -475,10 +475,13 @@ mod tests {
     #[test]
     fn scans_fixture_tree() {
         let tmp = tempfile::tempdir().unwrap();
+        // Keep the snapshot outside the scanned root so the walk cannot index
+        // its own output.
+        let snap_tmp = tempfile::tempdir().unwrap();
         fixture(tmp.path());
         let root = tmp.path().to_path_buf();
 
-        let snap = tmp.path().join("snap");
+        let snap = snap_tmp.path().join("snap");
         let mut writer = IndexWriter::create(&snap).unwrap();
         let options = ScanOptions::new(vec![root.to_string_lossy().into_owned()]);
         let fs = PortableFs;
