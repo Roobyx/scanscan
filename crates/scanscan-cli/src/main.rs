@@ -833,7 +833,7 @@ fn print_human(value: &serde_json::Value) {
     if let Some(items) = value.get("items").and_then(|v| v.as_array()) {
         for item in items {
             let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let size = item.get("size_alloc").and_then(|v| v.as_u64()).unwrap_or(0);
+            let size = item.get("sizeAlloc").and_then(|v| v.as_u64()).unwrap_or(0);
             let kind = item.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             println!("{:>14}  {:<10}  {}", human_size(size), kind, name);
         }

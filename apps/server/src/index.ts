@@ -25,6 +25,24 @@ if (config.coreBin && !existsSync(config.coreSocket)) {
 const core = new CoreClient(config.coreSocket);
 const app = createApp({ config, core });
 
+// Establish the core connection eagerly (with retries) so /health reports the
+// real core state and the first request is not slowed by a cold connect.
+let connectAttempts = 0;
+const connectCore = (): void => {
+  core
+    .call("core.health")
+    .then(() => {
+      connectAttempts = 0;
+    })
+    .catch(() => {
+      connectAttempts += 1;
+      if (connectAttempts <= 60) {
+        setTimeout(connectCore, 2000);
+      }
+    });
+};
+connectCore();
+
 if (config.webDir && existsSync(config.webDir)) {
   app.use("/*", serveStatic({ root: config.webDir }));
   app.get("*", serveStatic({ path: `${config.webDir}/index.html` }));

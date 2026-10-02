@@ -35,6 +35,9 @@ pub struct EntryMeta {
     pub nlink: u64,
     pub dev: u64,
     pub ino: u64,
+    pub uid: u32,
+    pub gid: u32,
+    pub mode: u16,
     /// Set when this entry could not be `stat`-ed; the walk records it and moves on.
     pub error: Option<String>,
 }
@@ -55,6 +58,9 @@ impl EntryMeta {
             nlink: 1,
             dev: 0,
             ino: 0,
+            uid: 0,
+            gid: 0,
+            mode: 0,
             error: Some(message),
         }
     }
@@ -96,17 +102,21 @@ impl PortableFs {
             .unwrap_or(0);
 
         #[cfg(unix)]
-        let (size_alloc, nlink, dev, ino) = {
+        let (size_alloc, nlink, dev, ino, uid, gid, mode) = {
             use std::os::unix::fs::MetadataExt;
             (
                 meta.blocks().saturating_mul(512),
                 meta.nlink(),
                 meta.dev(),
                 meta.ino(),
+                meta.uid(),
+                meta.gid(),
+                meta.mode() as u16,
             )
         };
         #[cfg(not(unix))]
-        let (size_alloc, nlink, dev, ino) = (meta.len(), 1, 0, 0);
+        let (size_alloc, nlink, dev, ino, uid, gid, mode) =
+            (meta.len(), 1u64, 0u64, 0u64, 0u32, 0u32, 0u16);
 
         EntryMeta {
             path: path.to_path_buf(),
@@ -119,6 +129,9 @@ impl PortableFs {
             nlink,
             dev,
             ino,
+            uid,
+            gid,
+            mode,
             error: None,
         }
     }
@@ -299,9 +312,9 @@ impl Walker<'_> {
                 size_app: 0,
                 size_alloc: 0,
                 mtime_ms: 0,
-                uid: 0,
-                gid: 0,
-                mode: 0,
+                uid: entry.uid,
+                gid: entry.gid,
+                mode: entry.mode,
             })?;
             self.tick(&entry.path);
             return Ok(());
@@ -370,9 +383,9 @@ impl Walker<'_> {
             size_app: 0,
             size_alloc: 0,
             mtime_ms: entry.mtime_ms,
-            uid: 0,
-            gid: 0,
-            mode: 0,
+            uid: entry.uid,
+            gid: entry.gid,
+            mode: entry.mode,
         })?;
         self.tick(&entry.path);
         Ok(())
@@ -392,9 +405,9 @@ impl Walker<'_> {
                     size_app: 0,
                     size_alloc: 0,
                     mtime_ms: entry.mtime_ms,
-                    uid: 0,
-                    gid: 0,
-                    mode: 0,
+                    uid: entry.uid,
+                    gid: entry.gid,
+                    mode: entry.mode,
                 })?;
                 self.tick(&entry.path);
                 return Ok(());
@@ -416,9 +429,9 @@ impl Walker<'_> {
             size_app: 0,
             size_alloc: 0,
             mtime_ms: entry.mtime_ms,
-            uid: 0,
-            gid: 0,
-            mode: 0,
+            uid: entry.uid,
+            gid: entry.gid,
+            mode: entry.mode,
         })?;
         self.tick(&entry.path);
 
@@ -452,9 +465,9 @@ impl Walker<'_> {
             size_app,
             size_alloc,
             mtime_ms: entry.mtime_ms,
-            uid: 0,
-            gid: 0,
-            mode: 0,
+            uid: entry.uid,
+            gid: entry.gid,
+            mode: entry.mode,
         })?;
         self.tick(&entry.path);
         Ok(())

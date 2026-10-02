@@ -111,6 +111,56 @@ export interface HealthResponse {
   uptimeS: number;
 }
 
+export type MountKind = "bind" | "volume" | "overlayupper" | "tmpfs";
+
+export interface MountInfo {
+  containerId: string;
+  containerName: string;
+  kind: MountKind;
+  source: string;
+  destination: string;
+  readWrite: boolean;
+  node?: number;
+  size?: number;
+}
+
+export interface ContainerInfo {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  sizeRw?: number;
+  sizeRootFs?: number;
+  mounts: MountInfo[];
+}
+
+export interface DockerStats {
+  id: string;
+  name: string;
+  cpuPercent: number;
+  memUsed: number;
+  memLimit: number;
+  netRx: number;
+  netTx: number;
+  blkRead: number;
+  blkWrite: number;
+}
+
+export interface HierarchyNode {
+  id: number;
+  name: string;
+  kind: NodeKind;
+  size: number;
+  children?: HierarchyNode[];
+}
+
+export interface HistogramBucket {
+  key: string;
+  label: string;
+  count: number;
+  size: number;
+}
+
 /** Terminal scan states never transition again. */
 export function isTerminalState(state: ScanState): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";

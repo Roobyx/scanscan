@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 
-use scanscan_ipc::{ContainerInfo, MountInfo, MountKind};
+use scanscan_ipc::{ContainerInfo, DockerStats, MountInfo, MountKind};
 
 use crate::error::{CoreError, Result};
 
@@ -82,6 +82,31 @@ impl DockerCollector {
         Ok(out)
     }
 
+    /// One non-streaming stats sample per running container.
+    pub fn stats(&self) -> Result<Vec<DockerStats>> {
+        let value = self.get("/containers/json?all=0")?;
+        let array = value.as_array().cloned().unwrap_or_default();
+        let mut out = Vec::new();
+        for item in &array {
+            let id = item.get("Id").and_then(Value::as_str).unwrap_or("");
+            if id.is_empty() {
+                continue;
+            }
+            let name = item
+                .get("Names")
+                .and_then(Value::as_array)
+                .and_then(|names| names.first())
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim_start_matches('/')
+                .to_string();
+            if let Ok(sample) = self.get(&format!("/containers/{id}/stats?stream=false")) {
+                out.push(parse_stats(id, &name, &sample));
+            }
+        }
+        Ok(out)
+    }
+
     #[cfg(unix)]
     fn get(&self, path: &str) -> Result<Value> {
         let body = http_get(&self.socket, path)?;
@@ -150,6 +175,59 @@ fn parse_container(item: &Value) -> ContainerInfo {
         size_rw,
         size_root_fs,
         mounts,
+    }
+}
+
+fn parse_stats(id: &str, name: &str, sample: &Value) -> DockerStats {
+    let cpu = &sample["cpu_stats"];
+    let pre = &sample["precpu_stats"];
+    let cpu_total = cpu["cpu_usage"]["total_usage"].as_u64().unwrap_or(0);
+    let pre_total = pre["cpu_usage"]["total_usage"].as_u64().unwrap_or(0);
+    let sys = cpu["system_cpu_usage"].as_u64().unwrap_or(0);
+    let pre_sys = pre["system_cpu_usage"].as_u64().unwrap_or(0);
+    let online = cpu["online_cpus"].as_u64().unwrap_or(1).max(1);
+    let cpu_delta = cpu_total.saturating_sub(pre_total) as f64;
+    let sys_delta = sys.saturating_sub(pre_sys) as f64;
+    let cpu_percent = if sys_delta > 0.0 {
+        (cpu_delta / sys_delta) * online as f64 * 100.0
+    } else {
+        0.0
+    };
+
+    let mem_used = sample["memory_stats"]["usage"].as_u64().unwrap_or(0);
+    let mem_limit = sample["memory_stats"]["limit"].as_u64().unwrap_or(0);
+
+    let (mut net_rx, mut net_tx) = (0u64, 0u64);
+    if let Some(networks) = sample["networks"].as_object() {
+        for net in networks.values() {
+            net_rx = net_rx.saturating_add(net["rx_bytes"].as_u64().unwrap_or(0));
+            net_tx = net_tx.saturating_add(net["tx_bytes"].as_u64().unwrap_or(0));
+        }
+    }
+
+    let (mut blk_read, mut blk_write) = (0u64, 0u64);
+    if let Some(items) = sample["blkio_stats"]["io_service_bytes_recursive"].as_array() {
+        for item in items {
+            let op = item["op"].as_str().unwrap_or("");
+            let value = item["value"].as_u64().unwrap_or(0);
+            if op.eq_ignore_ascii_case("read") {
+                blk_read = blk_read.saturating_add(value);
+            } else if op.eq_ignore_ascii_case("write") {
+                blk_write = blk_write.saturating_add(value);
+            }
+        }
+    }
+
+    DockerStats {
+        id: id.to_string(),
+        name: name.to_string(),
+        cpu_percent,
+        mem_used,
+        mem_limit,
+        net_rx,
+        net_tx,
+        blk_read,
+        blk_write,
     }
 }
 

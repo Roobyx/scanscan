@@ -12,6 +12,7 @@ pub enum NodeKind {
 
 /// A single indexed node. Node ids are stable within a snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NodeRecord {
     pub id: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -42,6 +43,7 @@ pub struct NodeChildren {
 
 /// A single rectangle in a squarified treemap tile set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Tile {
     pub node: u32,
     pub name: String,
@@ -57,6 +59,7 @@ pub struct Tile {
 
 /// A bounded tile set for one treemap viewport.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TilesResponse {
     pub snapshot: String,
     pub scope: u32,

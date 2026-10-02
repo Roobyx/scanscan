@@ -180,12 +180,111 @@ export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Ho
 
   app.get("/api/v1/scans/:id/extensions", async (c) => {
     try {
+      const result = await core.call<{
+        items: Array<{ key: string; count: number; size: number }>;
+      }>("query.histogram", {
+        id: c.req.param("id"),
+        scope: num(c.req.query("scope"), 0),
+        dim: "ext",
+      });
+      const items = (result.items ?? []).map((bucket) => ({
+        ext: bucket.key,
+        count: bucket.count,
+        size: bucket.size,
+      }));
+      return c.json({ items });
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/scans/:id/histogram", async (c) => {
+    try {
       return c.json(
         await core.call("query.histogram", {
           id: c.req.param("id"),
           scope: num(c.req.query("scope"), 0),
+          dim: c.req.query("dim") ?? "ext",
         }),
       );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/scans/:id/owners", async (c) => {
+    try {
+      return c.json(
+        await core.call("query.histogram", {
+          id: c.req.param("id"),
+          scope: num(c.req.query("scope"), 0),
+          dim: "owner",
+        }),
+      );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/scans/:id/age", async (c) => {
+    try {
+      return c.json(
+        await core.call("query.histogram", {
+          id: c.req.param("id"),
+          scope: num(c.req.query("scope"), 0),
+          dim: "age",
+        }),
+      );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/scans/:id/tree", async (c) => {
+    try {
+      return c.json(
+        await core.call("tree.hierarchy", {
+          id: c.req.param("id"),
+          scope: num(c.req.query("scope"), 0),
+          depth: num(c.req.query("depth"), 2),
+          limit: num(c.req.query("limit"), 2000),
+        }),
+      );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/scans/:id/export", async (c) => {
+    try {
+      const format = c.req.query("format") ?? "json";
+      const scope = num(c.req.query("scope"), 0);
+      const result = await core.call<{ items: Array<Record<string, unknown>> }>("query.search", {
+        id: c.req.param("id"),
+        scope,
+        limit: num(c.req.query("limit"), 100000),
+      });
+      const items = result.items ?? [];
+      if (format === "csv") {
+        const header = "id,parent,name,kind,sizeAlloc,sizeApparent,subtreeSize,mtimeMs";
+        const rows = items.map((item) =>
+          [
+            item["id"],
+            item["parent"] ?? "",
+            `"${String(item["name"] ?? "").replace(/"/g, '""')}"`,
+            item["kind"],
+            item["sizeAlloc"],
+            item["sizeApparent"],
+            item["subtreeSize"],
+            item["mtimeMs"],
+          ].join(","),
+        );
+        return c.body(`${[header, ...rows].join("\n")}\n`, 200, {
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": `attachment; filename="scanscan-${c.req.param("id")}.csv"`,
+        });
+      }
+      return c.json({ snapshot: c.req.param("id"), nodes: items });
     } catch (error) {
       return coreError(String(error));
     }
@@ -230,6 +329,14 @@ export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Ho
   app.get("/api/v1/docker/mounts", async (c) => {
     try {
       return c.json(await core.call("docker.mounts"));
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/docker/stats", async (c) => {
+    try {
+      return c.json(await core.call("docker.stats"));
     } catch (error) {
       return coreError(String(error));
     }

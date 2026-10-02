@@ -12,6 +12,7 @@ pub enum MountKind {
 
 /// A container mount correlated with an index node where possible.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MountInfo {
     pub container_id: String,
     pub container_name: String,
@@ -27,6 +28,7 @@ pub struct MountInfo {
 
 /// A container summary derived from the read-only Docker Engine API.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ContainerInfo {
     pub id: String,
     pub name: String,
@@ -42,8 +44,10 @@ pub struct ContainerInfo {
 
 /// A single non-streaming Docker stats sample.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DockerStats {
-    pub container_id: String,
+    pub id: String,
+    pub name: String,
     pub cpu_percent: f64,
     pub mem_used: u64,
     pub mem_limit: u64,

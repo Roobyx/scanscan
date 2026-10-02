@@ -29,6 +29,7 @@ pub mod methods {
 
     pub const TREE_CHILDREN: &str = "tree.children";
     pub const TREE_TILES: &str = "tree.tiles";
+    pub const TREE_HIERARCHY: &str = "tree.hierarchy";
 
     pub const QUERY_TOP: &str = "query.top";
     pub const QUERY_SEARCH: &str = "query.search";

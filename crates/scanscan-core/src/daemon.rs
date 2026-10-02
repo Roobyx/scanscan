@@ -150,12 +150,18 @@ impl Daemon {
                 let p: HistParam = params(req)?;
                 let reader = self.open(&p.id)?;
                 let q = QueryEngine::new(&reader);
-                let buckets = q.histogram_ext(p.scope.unwrap_or(0));
-                let items: Vec<Value> = buckets
-                    .into_iter()
-                    .map(|(ext, count, size)| json!({ "ext": ext, "count": count, "size": size }))
-                    .collect();
-                Ok(json!({ "items": items }))
+                let dim = p.dim.as_deref().unwrap_or("ext");
+                let buckets = q.histogram(p.scope.unwrap_or(0), dim);
+                Ok(json!({ "dim": dim, "items": buckets }))
+            }
+            methods::TREE_HIERARCHY => {
+                let p: HierarchyParam = params(req)?;
+                let reader = self.open(&p.id)?;
+                let q = QueryEngine::new(&reader);
+                let scope = p.scope.unwrap_or(0);
+                let depth = p.depth.unwrap_or(2);
+                let root = q.hierarchy(scope, depth, p.limit.unwrap_or(2000));
+                Ok(json!({ "scope": scope, "depth": depth, "root": root }))
             }
             methods::QUERY_SEARCH => {
                 let p: FindParam = params(req)?;
@@ -177,6 +183,7 @@ impl Daemon {
             }
             methods::DOCKER_CONTAINERS => to_value(json!({ "containers": self.docker.containers().unwrap_or_default() })),
             methods::DOCKER_MOUNTS => to_value(json!({ "mounts": self.docker.mounts().unwrap_or_default() })),
+            methods::DOCKER_STATS => to_value(json!({ "containers": self.docker.stats().unwrap_or_default() })),
             "docker.status" => to_value(self.docker.status()),
             _ => Err(RpcError::new(
                 codes::METHOD_NOT_FOUND,
@@ -249,6 +256,19 @@ struct HistParam {
     id: String,
     #[serde(default)]
     scope: Option<u32>,
+    #[serde(default)]
+    dim: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct HierarchyParam {
+    id: String,
+    #[serde(default)]
+    scope: Option<u32>,
+    #[serde(default)]
+    depth: Option<u32>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 #[derive(Deserialize)]

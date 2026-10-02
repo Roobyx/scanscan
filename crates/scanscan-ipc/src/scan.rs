@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Options controlling a scan.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanOptions {
     /// Absolute roots to scan. Each is canonicalized before the walk.
     pub roots: Vec<String>,
@@ -60,6 +61,7 @@ pub enum ScanState {
 
 /// Immutable summary of a scan/snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanSummary {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,6 +80,7 @@ pub struct ScanSummary {
 
 /// Throttled progress event emitted while a scan runs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgress {
     pub scan_id: String,
     pub state: ScanState,

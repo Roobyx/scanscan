@@ -4,6 +4,7 @@
 //! bounded by the subtree rather than the whole snapshot.
 
 use scanscan_ipc::{NodeKind, NodeRecord, Tile, TilesResponse};
+use serde::Serialize;
 
 use crate::index::{flags, IndexReader, Kind};
 
@@ -356,6 +357,226 @@ impl<'a> QueryEngine<'a> {
         }
         out
     }
+
+    /// Aggregate count/size over a dimension (`ext`, `age`, `owner`, `size`).
+    pub fn histogram(&self, scope: u32, dim: &str) -> Vec<Bucket> {
+        match dim {
+            "owner" => self.histogram_owner(scope),
+            "age" => self.histogram_age(scope),
+            "size" => self.histogram_size(scope),
+            _ => self.histogram_ext_buckets(scope),
+        }
+    }
+
+    fn histogram_ext_buckets(&self, scope: u32) -> Vec<Bucket> {
+        self.histogram_ext(scope)
+            .into_iter()
+            .map(|(ext, count, size)| Bucket {
+                label: if ext.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    ext.clone()
+                },
+                key: ext,
+                count,
+                size,
+            })
+            .collect()
+    }
+
+    fn histogram_owner(&self, scope: u32) -> Vec<Bucket> {
+        let mut map: std::collections::HashMap<(u32, u32), (u64, u64)> =
+            std::collections::HashMap::new();
+        for id in self.reader.subtree_range(scope) {
+            let Some(rec) = self.reader.record(id) else {
+                continue;
+            };
+            if rec.kind.is_dir() {
+                continue;
+            }
+            let entry = map.entry((rec.uid, rec.gid)).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 = entry.1.saturating_add(rec.size_alloc);
+        }
+        let mut out: Vec<Bucket> = map
+            .into_iter()
+            .map(|((uid, gid), (count, size))| Bucket {
+                key: format!("{uid}:{gid}"),
+                label: format!("{uid}:{gid}"),
+                count,
+                size,
+            })
+            .collect();
+        out.sort_by(|a, b| b.size.cmp(&a.size));
+        out
+    }
+
+    fn histogram_age(&self, scope: u32) -> Vec<Bucket> {
+        const DAY: i64 = 86_400_000;
+        let edges: [(i64, &str); 7] = [
+            (DAY, "<1d"),
+            (7 * DAY, "<7d"),
+            (30 * DAY, "<30d"),
+            (90 * DAY, "<90d"),
+            (365 * DAY, "<1y"),
+            (1095 * DAY, "<3y"),
+            (i64::MAX, ">3y"),
+        ];
+        let now = crate::index::now_ms();
+        let mut counts = vec![(0u64, 0u64); edges.len()];
+        for id in self.reader.subtree_range(scope) {
+            let Some(rec) = self.reader.record(id) else {
+                continue;
+            };
+            if rec.kind.is_dir() {
+                continue;
+            }
+            let age = (now - rec.mtime_ms).max(0);
+            if let Some(slot) = edges.iter().position(|(limit, _)| age < *limit) {
+                counts[slot].0 += 1;
+                counts[slot].1 = counts[slot].1.saturating_add(rec.size_alloc);
+            }
+        }
+        edges
+            .iter()
+            .enumerate()
+            .map(|(i, (_, label))| Bucket {
+                key: (*label).to_string(),
+                label: (*label).to_string(),
+                count: counts[i].0,
+                size: counts[i].1,
+            })
+            .collect()
+    }
+
+    fn histogram_size(&self, scope: u32) -> Vec<Bucket> {
+        const KB: u64 = 1024;
+        let edges: [(u64, &str); 8] = [
+            (KB, "0-1 KB"),
+            (10 * KB, "1-10 KB"),
+            (100 * KB, "10-100 KB"),
+            (KB * KB, "100 KB-1 MB"),
+            (10 * KB * KB, "1-10 MB"),
+            (100 * KB * KB, "10-100 MB"),
+            (KB * KB * KB, "100 MB-1 GB"),
+            (u64::MAX, ">1 GB"),
+        ];
+        let mut counts = vec![(0u64, 0u64); edges.len()];
+        for id in self.reader.subtree_range(scope) {
+            let Some(rec) = self.reader.record(id) else {
+                continue;
+            };
+            if rec.kind.is_dir() {
+                continue;
+            }
+            if let Some(slot) = edges.iter().position(|(limit, _)| rec.size_alloc < *limit) {
+                counts[slot].0 += 1;
+                counts[slot].1 = counts[slot].1.saturating_add(rec.size_alloc);
+            }
+        }
+        edges
+            .iter()
+            .enumerate()
+            .map(|(i, (_, label))| Bucket {
+                key: (*label).to_string(),
+                label: (*label).to_string(),
+                count: counts[i].0,
+                size: counts[i].1,
+            })
+            .collect()
+    }
+
+    /// Total of `metric` over the subtree rooted at `scope`.
+    pub fn subtree_bytes(&self, scope: u32, metric: Metric) -> u64 {
+        let mut total = 0u64;
+        for id in self.reader.subtree_range(scope) {
+            if let Some(rec) = self.reader.record(id) {
+                total = total.saturating_add(metric.value(&rec, self.reader.subtree_size(id)));
+            }
+        }
+        total
+    }
+
+    /// Bounded nested tree for sunburst/icicle/bubble layouts.
+    pub fn hierarchy(&self, scope: u32, depth: u32, limit: usize) -> HierarchyNode {
+        let mut budget = limit.max(1);
+        self.build_hierarchy(scope, depth, &mut budget)
+    }
+
+    fn build_hierarchy(&self, id: u32, depth: u32, budget: &mut usize) -> HierarchyNode {
+        let view = self.node(id);
+        let (name, kind, size, is_dir) = match &view {
+            Some(v) => {
+                let size = if v.kind == Kind::Directory {
+                    self.subtree_bytes(id, Metric::Alloc)
+                } else {
+                    v.size_alloc
+                };
+                (
+                    v.name.clone(),
+                    kind_name(v.kind).to_string(),
+                    size,
+                    v.kind == Kind::Directory,
+                )
+            }
+            None => (String::new(), "special".to_string(), 0, false),
+        };
+        let mut children = Vec::new();
+        if depth > 0 && is_dir {
+            let mut kids: Vec<(u32, u64)> = self
+                .reader
+                .children(id)
+                .into_iter()
+                .map(|child| (child, self.subtree_bytes(child, Metric::Alloc)))
+                .collect();
+            kids.sort_by(|a, b| b.1.cmp(&a.1));
+            for (child, _) in kids {
+                if *budget == 0 {
+                    break;
+                }
+                *budget -= 1;
+                children.push(self.build_hierarchy(child, depth - 1, budget));
+            }
+        }
+        HierarchyNode {
+            id,
+            name,
+            kind,
+            size,
+            children,
+        }
+    }
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::File => "file",
+        Kind::Directory => "directory",
+        Kind::Symlink => "symlink",
+        Kind::Special => "special",
+    }
+}
+
+/// One histogram bucket (`key` is the stable identity, `label` is for display).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bucket {
+    pub key: String,
+    pub label: String,
+    pub count: u64,
+    pub size: u64,
+}
+
+/// A bounded nested node for hierarchy layouts.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HierarchyNode {
+    pub id: u32,
+    pub name: String,
+    pub kind: String,
+    pub size: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<HierarchyNode>,
 }
 
 fn dummy_record() -> crate::index::Record {
