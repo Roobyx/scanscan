@@ -37,7 +37,7 @@ services:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.site
     ports:
-      - "${SCANSCAN_SITE_PORT:-3000}:80"
+      - "${SCANSCAN_SITE_PORT:-3300}:80"
     restart: unless-stopped
 
   # Optional GET-only Docker socket proxy. Remove the docker.sock mount from

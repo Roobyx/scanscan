@@ -31,7 +31,7 @@ services:
       dockerfile: deploy/docker/Dockerfile.site
     image: scanscan/site:${SCANSCAN_TAG:-dev}
     ports:
-      - "${SCANSCAN_SITE_PORT:-3000}:80"
+      - "${SCANSCAN_SITE_PORT:-3300}:80"
     restart: unless-stopped
 
 volumes:

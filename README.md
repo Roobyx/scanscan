@@ -28,7 +28,7 @@ roadmap. **License:** GPL-3.0-or-later. **Primary target:** Linux → macOS → 
 ```bash
 docker compose up -d --build
 # web client:  http://localhost:8080
-# docs/landing: http://localhost:3000
+# docs/landing: http://localhost:3300   (canonical 3000; overridable via SCANSCAN_SITE_PORT)
 ```
 
 ## Local development
