@@ -1,5 +1,10 @@
 import type {
+  ContainerInfo,
+  DockerStats,
   HealthResponse,
+  HierarchyNode,
+  HistogramBucket,
+  MountInfo,
   NodeKind,
   NodeRecord,
   ScanSummary,
@@ -105,6 +110,7 @@ export function getChildren(
 
 export interface TopQuery {
   n?: number;
+  scope?: number | string;
   kind?: NodeKind;
   metric?: "alloc" | "apparent";
 }
@@ -112,6 +118,7 @@ export interface TopQuery {
 export async function getTop(id: string, query?: TopQuery): Promise<NodeRecord[]> {
   const params = new URLSearchParams();
   if (query?.n !== undefined) params.set("n", String(query.n));
+  if (query?.scope !== undefined) params.set("scope", String(query.scope));
   if (query?.kind !== undefined) params.set("kind", query.kind);
   if (query?.metric !== undefined) params.set("metric", query.metric);
   const qs = params.toString();
@@ -133,4 +140,94 @@ export async function getExtensions(id: string): Promise<ExtensionStat[]> {
     `/scans/${encodeURIComponent(id)}/extensions`,
   );
   return body.items;
+}
+
+export type HistogramDim = "ext" | "age" | "owner" | "size";
+
+export interface HistogramResponse {
+  dim: string;
+  items: HistogramBucket[];
+}
+
+export function getHistogram(
+  id: string,
+  dim: HistogramDim,
+  scope: number | string = 0,
+): Promise<HistogramResponse> {
+  const params = new URLSearchParams();
+  params.set("dim", dim);
+  params.set("scope", String(scope));
+  return request<HistogramResponse>(
+    `/scans/${encodeURIComponent(id)}/histogram?${params.toString()}`,
+  );
+}
+
+export interface TreeResponse {
+  scope: number;
+  depth: number;
+  root: HierarchyNode;
+}
+
+export function getTree(
+  id: string,
+  scope: number | string,
+  depth = 3,
+  limit = 2000,
+): Promise<TreeResponse> {
+  const params = new URLSearchParams();
+  params.set("scope", String(scope));
+  params.set("depth", String(depth));
+  params.set("limit", String(limit));
+  return request<TreeResponse>(`/scans/${encodeURIComponent(id)}/tree?${params.toString()}`);
+}
+
+export interface SearchQuery {
+  scope?: number | string;
+  q?: string;
+  ext?: string;
+  kind?: NodeKind;
+  size_min?: number;
+  size_max?: number;
+  limit?: number;
+}
+
+export async function searchNodes(id: string, params: SearchQuery): Promise<NodeRecord[]> {
+  const query = new URLSearchParams();
+  if (params.scope !== undefined) query.set("scope", String(params.scope));
+  if (params.q !== undefined && params.q.length > 0) query.set("q", params.q);
+  if (params.ext !== undefined && params.ext.length > 0) query.set("ext", params.ext);
+  if (params.kind !== undefined) query.set("kind", params.kind);
+  if (params.size_min !== undefined) query.set("size_min", String(params.size_min));
+  if (params.size_max !== undefined) query.set("size_max", String(params.size_max));
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  const body = await request<{ items: NodeRecord[] }>(
+    `/scans/${encodeURIComponent(id)}/search?${query.toString()}`,
+  );
+  return body.items;
+}
+
+export function exportUrl(
+  id: string,
+  format: "csv" | "json" = "csv",
+  scope: number | string = 0,
+): string {
+  const params = new URLSearchParams();
+  params.set("format", format);
+  params.set("scope", String(scope));
+  return `${BASE}/scans/${encodeURIComponent(id)}/export?${params.toString()}`;
+}
+
+export async function getDockerContainers(): Promise<ContainerInfo[]> {
+  const body = await request<{ containers: ContainerInfo[] }>("/docker/containers");
+  return body.containers;
+}
+
+export async function getDockerMounts(): Promise<MountInfo[]> {
+  const body = await request<{ mounts: MountInfo[] }>("/docker/mounts");
+  return body.mounts;
+}
+
+export async function getDockerStats(): Promise<DockerStats[]> {
+  const body = await request<{ containers: DockerStats[] }>("/docker/stats");
+  return body.containers;
 }

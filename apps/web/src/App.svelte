@@ -1,19 +1,104 @@
 <script lang="ts">
-  import type { HealthResponse, NodeRecord, ScanSummary, Tile } from "@scanscan/api-types";
+  import type {
+    HealthResponse,
+    HierarchyNode,
+    HistogramBucket,
+    NodeRecord,
+    ScanSummary,
+    Tile,
+  } from "@scanscan/api-types";
   import { onMount } from "svelte";
 
+  import Bars from "./components/Bars.svelte";
   import Breadcrumb from "./components/Breadcrumb.svelte";
+  import Breakdown from "./components/Breakdown.svelte";
+  import Bubble from "./components/Bubble.svelte";
+  import DockerPanel from "./components/DockerPanel.svelte";
+  import Histogram from "./components/Histogram.svelte";
+  import Icicle from "./components/Icicle.svelte";
   import RankedTable from "./components/RankedTable.svelte";
   import ScanLauncher from "./components/ScanLauncher.svelte";
+  import SearchPanel from "./components/SearchPanel.svelte";
+  import Sunburst from "./components/Sunburst.svelte";
   import Treemap from "./components/Treemap.svelte";
-  import { errorMessage, getChildren, getHealth, getScan, getTiles, listScans } from "./lib/api.js";
+  import {
+    errorMessage,
+    exportUrl,
+    getChildren,
+    getHealth,
+    getHistogram,
+    getScan,
+    getTiles,
+    getTop,
+    getTree,
+    listScans,
+  } from "./lib/api.js";
+  import type { HistogramDim } from "./lib/api.js";
   import type { ColorMode } from "./lib/color.js";
   import { formatBytes } from "./lib/format.js";
+
+  type ViewId =
+    | "treemap"
+    | "sunburst"
+    | "icicle"
+    | "bubble"
+    | "bars"
+    | "histogram"
+    | "extensions"
+    | "age"
+    | "owners"
+    | "docker";
+
+  interface ViewDef {
+    id: ViewId;
+    label: string;
+  }
+
+  const VIEWS: ViewDef[] = [
+    { id: "treemap", label: "Treemap" },
+    { id: "sunburst", label: "Sunburst" },
+    { id: "icicle", label: "Icicle" },
+    { id: "bubble", label: "Bubble" },
+    { id: "bars", label: "Bars" },
+    { id: "histogram", label: "Histogram" },
+    { id: "extensions", label: "Extensions" },
+    { id: "age", label: "Age" },
+    { id: "owners", label: "Owners" },
+    { id: "docker", label: "Docker" },
+  ];
 
   interface Crumb {
     id: number;
     name: string;
   }
+
+  interface HashState {
+    view: ViewId;
+    scope: number | null;
+    color: ColorMode;
+    q: string;
+  }
+
+  function parseHash(): HashState {
+    const raw =
+      typeof window !== "undefined" && window.location.hash.length > 1
+        ? window.location.hash.slice(1)
+        : "";
+    const params = new URLSearchParams(raw);
+    const viewParam = params.get("view");
+    const matched = VIEWS.find((entry) => entry.id === viewParam);
+    const scopeRaw = params.get("scope");
+    const scopeNum = scopeRaw === null ? Number.NaN : Number(scopeRaw);
+    return {
+      view: matched ? matched.id : "treemap",
+      scope: Number.isFinite(scopeNum) && scopeNum >= 0 ? scopeNum : null,
+      color: params.get("color") === "ext" ? "ext" : "size",
+      q: params.get("q") ?? "",
+    };
+  }
+
+  const initial = parseHash();
+  let pendingScope: number | null = initial.scope;
 
   let health = $state<HealthResponse | null>(null);
   let healthError = $state<string | null>(null);
@@ -28,14 +113,26 @@
   let childTotal = $state(0);
   let truncated = $state(false);
 
-  let colorMode = $state<ColorMode>("size");
+  let colorMode = $state<ColorMode>(initial.color);
+  let view = $state<ViewId>(initial.view);
   let loading = $state(false);
   let error = $state<string | null>(null);
+
+  let tree = $state<HierarchyNode | null>(null);
+  let topNodes = $state<NodeRecord[]>([]);
+  let histogram = $state<HistogramBucket[]>([]);
+  let viewLoading = $state(false);
+  let viewError = $state<string | null>(null);
+
+  let searchOpen = $state(initial.q.length > 0);
+  let searchQuery = $state(initial.q);
 
   let treemapHost = $state<HTMLDivElement | null>(null);
   let hostW = $state(0);
   let hostH = $state(0);
-  let requestSeq = 0;
+  let tilesSeq = 0;
+  let childrenSeq = 0;
+  let viewSeq = 0;
 
   function bucket(value: number): number {
     if (value <= 0) return 0;
@@ -46,6 +143,19 @@
   const tileH = $derived(bucket(hostH));
   const scopeLabel = $derived(scopePath[scopePath.length - 1]?.name ?? "/");
   const totalBytes = $derived(tiles.reduce((sum, tile) => sum + tile.size, 0));
+  const isHierarchyView = $derived(view === "sunburst" || view === "icicle" || view === "bubble");
+
+  const viewSummary = $derived.by(() => {
+    if (view === "treemap") return `${formatBytes(totalBytes)}${truncated ? " · truncated" : ""}`;
+    if (isHierarchyView) return tree ? formatBytes(tree.size) : "—";
+    if (view === "bars") return `${topNodes.length} nodes`;
+    if (view === "docker") return "containers";
+    return `${histogram.length} buckets`;
+  });
+
+  const breakdownTitle = $derived(
+    view === "extensions" ? "Extensions" : view === "age" ? "Age" : "Owners",
+  );
 
   async function loadScans(): Promise<void> {
     try {
@@ -57,7 +167,9 @@
 
   async function selectScan(id: string): Promise<void> {
     selectedId = id;
-    scopeId = 0;
+    const requested = pendingScope;
+    pendingScope = null;
+    scopeId = requested ?? 0;
     let summary = scans.find((scan) => scan.id === id) ?? null;
     if (!summary) {
       try {
@@ -66,7 +178,7 @@
         error = errorMessage(cause);
       }
     }
-    scopePath = [{ id: 0, name: summary?.roots[0] ?? "/" }];
+    scopePath = [{ id: requested ?? 0, name: summary?.roots[0] ?? "/" }];
   }
 
   async function handleCreated(id: string): Promise<void> {
@@ -74,36 +186,83 @@
     await selectScan(id);
   }
 
-  async function loadScope(
+  async function loadTiles(
     scanId: string,
     scope: number,
     width: number,
     height: number,
     color: ColorMode,
   ): Promise<void> {
-    const seq = requestSeq + 1;
-    requestSeq = seq;
+    const seq = tilesSeq + 1;
+    tilesSeq = seq;
     loading = true;
     error = null;
     try {
-      const [tilesResponse, childrenResponse] = await Promise.all([
-        getTiles(scanId, { scope, depth: 2, w: width, h: height, color }),
-        getChildren(scanId, scope, { sort: "size", limit: 200 }),
-      ]);
-      if (seq !== requestSeq) return;
-      tiles = tilesResponse.tiles;
-      truncated = tilesResponse.truncated;
-      children = childrenResponse.items;
-      childTotal = childrenResponse.total;
+      const response = await getTiles(scanId, { scope, depth: 2, w: width, h: height, color });
+      if (seq !== tilesSeq) return;
+      tiles = response.tiles;
+      truncated = response.truncated;
       const root = scopePath[0];
-      if (scopePath.length === 1 && root && root.id !== tilesResponse.scope) {
-        scopePath = [{ id: tilesResponse.scope, name: root.name }];
+      if (scopePath.length === 1 && root && root.id !== response.scope) {
+        scopePath = [{ id: response.scope, name: root.name }];
       }
     } catch (cause) {
-      if (seq !== requestSeq) return;
+      if (seq !== tilesSeq) return;
       error = errorMessage(cause);
     } finally {
-      if (seq === requestSeq) loading = false;
+      if (seq === tilesSeq) loading = false;
+    }
+  }
+
+  async function loadChildren(scanId: string, scope: number): Promise<void> {
+    const seq = childrenSeq + 1;
+    childrenSeq = seq;
+    try {
+      const response = await getChildren(scanId, scope, { sort: "size", limit: 1000 });
+      if (seq !== childrenSeq) return;
+      children = response.items;
+      childTotal = response.total;
+    } catch (cause) {
+      if (seq !== childrenSeq) return;
+      error = errorMessage(cause);
+    }
+  }
+
+  async function loadViewData(): Promise<void> {
+    const scanId = selectedId;
+    if (!scanId) return;
+    const seq = viewSeq + 1;
+    viewSeq = seq;
+    viewError = null;
+    if (isHierarchyView) {
+      tree = null;
+    } else if (view === "bars") {
+      topNodes = [];
+    } else {
+      histogram = [];
+    }
+    viewLoading = true;
+    try {
+      if (isHierarchyView) {
+        const response = await getTree(scanId, scopeId, 3, 2000);
+        if (seq !== viewSeq) return;
+        tree = response.root;
+      } else if (view === "bars") {
+        const nodes = await getTop(scanId, { n: 25, scope: scopeId });
+        if (seq !== viewSeq) return;
+        topNodes = nodes;
+      } else {
+        const dim: HistogramDim =
+          view === "histogram" ? "size" : view === "age" ? "age" : view === "owners" ? "owner" : "ext";
+        const response = await getHistogram(scanId, dim, scopeId);
+        if (seq !== viewSeq) return;
+        histogram = response.items;
+      }
+    } catch (cause) {
+      if (seq !== viewSeq) return;
+      viewError = errorMessage(cause);
+    } finally {
+      if (seq === viewSeq) viewLoading = false;
     }
   }
 
@@ -128,6 +287,23 @@
     if (node.kind !== "directory") return;
     if (node.children <= 0 && node.hasChildren !== true) return;
     pushScope(node.id, node.name);
+  }
+
+  async function openHierarchy(node: HierarchyNode): Promise<void> {
+    if (node.kind !== "directory") return;
+    if (node.children && node.children.length > 0) {
+      pushScope(node.id, node.name);
+      return;
+    }
+    const scanId = selectedId;
+    if (!scanId) return;
+    try {
+      const response = await getChildren(scanId, node.id, { limit: 1 });
+      if (response.total === 0) return;
+      pushScope(node.id, node.name);
+    } catch (cause) {
+      error = errorMessage(cause);
+    }
   }
 
   function navigate(index: number): void {
@@ -172,13 +348,40 @@
   });
 
   $effect(() => {
+    if (view !== "treemap") return;
     const scanId = selectedId;
     const scope = scopeId;
     const width = tileW;
     const height = tileH;
     const color = colorMode;
     if (!scanId || width <= 0 || height <= 0) return;
-    void loadScope(scanId, scope, width, height, color);
+    void loadTiles(scanId, scope, width, height, color);
+  });
+
+  $effect(() => {
+    const scanId = selectedId;
+    const scope = scopeId;
+    if (!scanId) return;
+    void loadChildren(scanId, scope);
+  });
+
+  $effect(() => {
+    const scanId = selectedId;
+    const active = view;
+    if (!scanId || active === "treemap" || active === "docker") return;
+    void loadViewData();
+  });
+
+  $effect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams();
+    params.set("view", view);
+    if (scopeId !== 0) params.set("scope", String(scopeId));
+    params.set("color", colorMode);
+    const trimmed = searchQuery.trim();
+    if (trimmed.length > 0) params.set("q", trimmed);
+    const hash = `#${params.toString()}`;
+    if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
   });
 </script>
 
@@ -205,6 +408,18 @@
           Extension
         </button>
       </div>
+      <button
+        type="button"
+        class="action"
+        class:active={searchOpen}
+        disabled={!selectedId}
+        onclick={() => (searchOpen = !searchOpen)}
+      >
+        Search
+      </button>
+      {#if selectedId}
+        <a class="action" href={exportUrl(selectedId, "csv", scopeId)} download>Export</a>
+      {/if}
       <div class="status">
         {#if healthError}
           <span class="pill err" title={healthError}>API unreachable</span>
@@ -220,7 +435,37 @@
     </div>
   </header>
 
-  {#if !selectedId}
+  <nav class="views" aria-label="Views">
+    {#each VIEWS as entry (entry.id)}
+      <button type="button" class:active={view === entry.id} onclick={() => (view = entry.id)}>
+        {entry.label}
+      </button>
+    {/each}
+  </nav>
+
+  {#if searchOpen && selectedId}
+    <section class="search-drawer">
+      <div class="panel-head">
+        <h2>Search</h2>
+        <button type="button" class="link" onclick={() => (searchOpen = false)}>Close</button>
+      </div>
+      <SearchPanel scanId={selectedId} scope={scopeId} onselect={openNode} bind:q={searchQuery} />
+    </section>
+  {/if}
+
+  {#if view === "docker"}
+    <main class="solo">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Docker</h2>
+          <span class="muted">read-only</span>
+        </div>
+        <div class="view-host">
+          <DockerPanel />
+        </div>
+      </section>
+    </main>
+  {:else if !selectedId}
     <main class="empty-main">
       <ScanLauncher oncreated={handleCreated} />
     </main>
@@ -231,17 +476,69 @@
           <div class="crumbs">
             <Breadcrumb path={scopePath} onnavigate={navigate} />
           </div>
-          <span class="muted">{formatBytes(totalBytes)}{truncated ? " · truncated" : ""}</span>
+          <span class="muted">{viewSummary}</span>
         </div>
-        <div class="canvas-host" bind:this={treemapHost}>
-          {#if loading && tiles.length === 0}
-            <p class="state">Loading tiles…</p>
-          {:else if error}
-            <p class="state err">{error}</p>
-          {:else if tiles.length === 0}
-            <p class="state">No tiles in {scopeLabel}.</p>
+        <div class="view-host" bind:this={treemapHost}>
+          {#if view === "treemap"}
+            {#if loading && tiles.length === 0}
+              <p class="state">Loading tiles…</p>
+            {:else if error}
+              <p class="state err">{error}</p>
+            {:else if tiles.length === 0}
+              <p class="state">No tiles in {scopeLabel}.</p>
+            {:else}
+              <Treemap {tiles} {colorMode} onselect={openTile} />
+            {/if}
+          {:else if isHierarchyView}
+            {#if viewLoading}
+              <p class="state">Loading hierarchy…</p>
+            {:else if viewError}
+              <p class="state err">{viewError}</p>
+            {:else if tree}
+              {#if (tree.children ?? []).length > 0}
+                {#if view === "sunburst"}
+                  <Sunburst root={tree} onselect={openHierarchy} />
+                {:else if view === "icicle"}
+                  <Icicle root={tree} onselect={openHierarchy} />
+                {:else}
+                  <Bubble root={tree} onselect={openHierarchy} />
+                {/if}
+              {:else}
+                <p class="state">No children in {scopeLabel}.</p>
+              {/if}
+            {:else}
+              <p class="state">No children in {scopeLabel}.</p>
+            {/if}
+          {:else if view === "bars"}
+            {#if viewLoading}
+              <p class="state">Loading…</p>
+            {:else if viewError}
+              <p class="state err">{viewError}</p>
+            {:else if topNodes.length === 0}
+              <p class="state">No nodes in {scopeLabel}.</p>
+            {:else}
+              <Bars items={topNodes} onselect={openNode} />
+            {/if}
+          {:else if view === "histogram"}
+            {#if viewLoading}
+              <p class="state">Loading…</p>
+            {:else if viewError}
+              <p class="state err">{viewError}</p>
+            {:else if histogram.length === 0}
+              <p class="state">No data in {scopeLabel}.</p>
+            {:else}
+              <Histogram items={histogram} />
+            {/if}
           {:else}
-            <Treemap {tiles} {colorMode} onselect={openTile} />
+            {#if viewLoading}
+              <p class="state">Loading…</p>
+            {:else if viewError}
+              <p class="state err">{viewError}</p>
+            {:else if histogram.length === 0}
+              <p class="state">No data in {scopeLabel}.</p>
+            {:else}
+              <Breakdown items={histogram} title={breakdownTitle} />
+            {/if}
           {/if}
         </div>
       </section>
@@ -251,11 +548,7 @@
           <h2>Ranked</h2>
           <span class="muted">{childTotal.toLocaleString()} items</span>
         </div>
-        {#if loading && children.length === 0}
-          <p class="state">Loading…</p>
-        {:else}
-          <RankedTable items={children} onselect={openNode} />
-        {/if}
+        <RankedTable items={children} onselect={openNode} />
       </section>
     </main>
   {/if}
@@ -340,6 +633,32 @@
     color: #0b0e14;
   }
 
+  .action {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.75rem;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .action:hover {
+    border-color: var(--accent);
+  }
+
+  .action.active {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
   .status {
     display: flex;
     gap: 0.5rem;
@@ -367,6 +686,47 @@
     color: var(--muted);
   }
 
+  .views {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.4rem 1rem;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  .views button {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .views button:hover {
+    color: var(--text);
+    background: var(--panel-2);
+  }
+
+  .views button.active {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--text);
+  }
+
+  .search-drawer {
+    display: flex;
+    flex-direction: column;
+    max-height: 40vh;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+
   main {
     flex: 1;
     display: grid;
@@ -374,6 +734,10 @@
     gap: 1rem;
     padding: 1rem;
     min-height: 0;
+  }
+
+  main.solo {
+    grid-template-columns: 1fr;
   }
 
   main.empty-main {
@@ -410,16 +774,32 @@
     text-transform: uppercase;
   }
 
+  .link {
+    padding: 0.1rem 0.35rem;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
+  .link:hover {
+    background: var(--panel-2);
+  }
+
   .crumbs {
     min-width: 0;
     overflow: hidden;
   }
 
-  .canvas-host {
+  .view-host {
     position: relative;
     display: flex;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
   }
 
   .state {

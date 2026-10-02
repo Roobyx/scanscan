@@ -2,6 +2,21 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [0.3.0] - 2026-10-02
+
+### Added
+- Phase 2 views: sunburst, icicle, bubble, ranked bars, size histogram, and extension/age/owner
+  breakdowns, alongside the treemap; a Docker dashboard with container cards, mounts and live
+  stats; and a search/filter panel.
+- URL-addressable state (`#view=…&scope=…&color=…&q=…`), a virtualized ranked table, and CSV/JSON
+  export.
+- Backend: histogram dimensions (`ext|age|owner|size`), bounded hierarchy for radial/icicle/bubble
+  layouts, Docker non-streaming stats, and `uid`/`gid`/`mode` capture in the scanner.
+
+### Changed
+- The IPC/HTTP wire types now serialize camelCase, matching `packages/api-types` and the web client
+  (previously snake_case, which the browser could not read).
+
 ## [0.2.0] - 2026-10-02
 
 ### Added

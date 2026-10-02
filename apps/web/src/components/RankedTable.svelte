@@ -12,8 +12,16 @@
 
   type SortKey = "name" | "sizeAlloc" | "sizeApparent" | "children" | "kind";
 
+  const ROW_HEIGHT = 28;
+  const OVERSCAN = 8;
+  const VIRTUAL_THRESHOLD = 200;
+
   let sortKey = $state<SortKey>("sizeAlloc");
   let sortDir = $state<"asc" | "desc">("desc");
+
+  let wrap = $state<HTMLDivElement | null>(null);
+  let scrollTop = $state(0);
+  let viewport = $state(0);
 
   const sorted = $derived.by(() => {
     const copy = [...items];
@@ -28,6 +36,21 @@
     });
     return copy;
   });
+
+  const virtual = $derived(sorted.length > VIRTUAL_THRESHOLD);
+  const start = $derived(
+    virtual
+      ? Math.min(sorted.length, Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN))
+      : 0,
+  );
+  const end = $derived(
+    virtual
+      ? Math.min(sorted.length, Math.ceil((scrollTop + viewport) / ROW_HEIGHT) + OVERSCAN)
+      : sorted.length,
+  );
+  const visible = $derived(sorted.slice(start, end));
+  const padTop = $derived(start * ROW_HEIGHT);
+  const padBottom = $derived(Math.max(0, (sorted.length - end) * ROW_HEIGHT));
 
   function toggle(key: SortKey): void {
     if (sortKey === key) {
@@ -52,9 +75,24 @@
     event.preventDefault();
     activate(node);
   }
+
+  function handleScroll(): void {
+    if (wrap) scrollTop = wrap.scrollTop;
+  }
+
+  $effect(() => {
+    const element = wrap;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      viewport = element.clientHeight;
+    });
+    observer.observe(element);
+    viewport = element.clientHeight;
+    return () => observer.disconnect();
+  });
 </script>
 
-<div class="wrap">
+<div class="wrap" class:virtual bind:this={wrap} onscroll={handleScroll}>
   <table>
     <thead>
       <tr>
@@ -72,7 +110,12 @@
       </tr>
     </thead>
     <tbody>
-      {#each sorted as node (node.id)}
+      {#if virtual && padTop > 0}
+        <tr class="spacer" aria-hidden="true">
+          <td colspan="5" style="height: {padTop}px"></td>
+        </tr>
+      {/if}
+      {#each visible as node (node.id)}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_static_element_interactions a11y_no_noninteractive_tabindex -->
         <tr
           tabindex="0"
@@ -88,6 +131,11 @@
           </td>
         </tr>
       {/each}
+      {#if virtual && padBottom > 0}
+        <tr class="spacer" aria-hidden="true">
+          <td colspan="5" style="height: {padBottom}px"></td>
+        </tr>
+      {/if}
     </tbody>
   </table>
   {#if sorted.length === 0}
@@ -163,6 +211,22 @@
   td {
     padding: 0.4rem 0.6rem;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  }
+
+  .wrap.virtual tbody tr {
+    height: 28px;
+  }
+
+  .wrap.virtual td {
+    height: 28px;
+    padding: 0 0.6rem;
+    line-height: 28px;
+    white-space: nowrap;
+  }
+
+  .wrap.virtual tr.spacer td {
+    padding: 0;
+    border: none;
   }
 
   td.name {
