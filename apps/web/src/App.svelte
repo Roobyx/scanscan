@@ -24,6 +24,7 @@
   import ScanLauncher from "./components/ScanLauncher.svelte";
   import ScanProgressPanel from "./components/ScanProgressPanel.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
+  import SchedulesPanel from "./components/SchedulesPanel.svelte";
   import Sunburst from "./components/Sunburst.svelte";
   import Treemap from "./components/Treemap.svelte";
   import {
@@ -57,7 +58,8 @@
     | "owners"
     | "docker"
     | "duplicates"
-    | "diff";
+    | "diff"
+    | "schedules";
 
   interface ViewDef {
     id: ViewId;
@@ -78,6 +80,7 @@
     { id: "docker", label: "Docker" },
     { id: "duplicates", label: "Duplicates" },
     { id: "diff", label: "Diff" },
+    { id: "schedules", label: "Schedules" },
   ];
 
   interface Crumb {
@@ -170,6 +173,7 @@
     if (view === "docker") return "containers";
     if (view === "duplicates") return "duplicate files";
     if (view === "diff") return "snapshot diff";
+    if (view === "schedules") return "cron jobs";
     return `${histogram.length} buckets`;
   });
 
@@ -443,7 +447,8 @@
       active === "treemap" ||
       active === "docker" ||
       active === "duplicates" ||
-      active === "diff"
+      active === "diff" ||
+      active === "schedules"
     )
       return;
     void loadViewData();
@@ -551,6 +556,18 @@
             scanId={selectedId ?? undefined}
             onreveal={(nodeId) => (scopeId = nodeId)}
           />
+        </div>
+      </section>
+    </main>
+  {:else if view === "schedules"}
+    <main class="solo">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Schedules</h2>
+          <span class="muted">{viewSummary}</span>
+        </div>
+        <div class="view-host">
+          <SchedulesPanel />
         </div>
       </section>
     </main>

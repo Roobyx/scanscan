@@ -41,7 +41,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message);
   }
-  return (await res.json()) as T;
+  if (res.status === 204) {
+    return undefined as unknown as T;
+  }
+  const text = await res.text();
+  if (text.length === 0) {
+    return undefined as unknown as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 export function getHealth(): Promise<HealthResponse> {
@@ -342,4 +349,37 @@ export async function getDockerMounts(scanId?: string): Promise<MountInfo[]> {
 export async function getDockerStats(): Promise<DockerStats[]> {
   const body = await request<{ containers: DockerStats[] }>("/docker/stats");
   return body.containers;
+}
+
+export interface Schedule {
+  id: string;
+  roots: string[];
+  cron: string;
+  enabled: boolean;
+  lastRunMs?: number;
+  nextRunMs?: number;
+  lastScanId?: string;
+}
+
+export async function getSchedules(): Promise<Schedule[]> {
+  const body = await request<{ schedules: Schedule[] }>("/schedules");
+  return body.schedules;
+}
+
+export interface CreateScheduleInput {
+  roots: string[];
+  cron: string;
+  enabled?: boolean;
+}
+
+export function createSchedule(input: CreateScheduleInput): Promise<Schedule> {
+  return request<Schedule>("/schedules", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  await request<void>(`/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

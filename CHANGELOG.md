@@ -2,6 +2,13 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.6.0] - 2026-10-02
+
+### Added
+- Scheduled scans: a server-side cron scheduler (`GET/POST/DELETE /api/v1/schedules`) that
+  triggers scans on a 5-field cron expression, plus a Schedules view to add, list and delete
+  schedules.
+
 ## [1.5.1] - 2026-10-02
 
 ### Fixed
