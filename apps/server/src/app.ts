@@ -4,10 +4,12 @@ import { streamSSE } from "hono/streaming";
 
 import type { ServerConfig } from "./config.js";
 import type { CoreApi } from "./core/client.js";
+import type { Scheduler } from "./scheduler.js";
 
 export interface AppDeps {
   config: ServerConfig;
   core: CoreApi;
+  scheduler?: Scheduler;
   startedAt?: number;
 }
 
@@ -20,7 +22,7 @@ function num(value: string | undefined, fallback: number): number {
 }
 
 /** Build the Hono application (transport-agnostic; easy to unit test). */
-export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Hono {
+export function createApp({ config, core, scheduler, startedAt = Date.now() }: AppDeps): Hono {
   const app = new Hono();
 
   const coreError = (message: string, status = 502) =>
@@ -61,6 +63,30 @@ export function createApp({ config, core, startedAt = Date.now() }: AppDeps): Ho
     } catch (error) {
       return coreError(String(error));
     }
+  });
+
+  // ---- schedules ----
+  app.get("/api/v1/schedules", (c) => c.json({ schedules: scheduler?.list() ?? [] }));
+
+  app.post("/api/v1/schedules", async (c) => {
+    if (!scheduler) return coreError("scheduler unavailable", 503);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      roots?: string[];
+      cron?: string;
+      enabled?: boolean;
+    };
+    if (!body.roots || body.roots.length === 0 || !body.cron) {
+      return c.json({ error: "roots and cron are required" }, 400);
+    }
+    return c.json(
+      scheduler.add({ roots: body.roots, cron: body.cron, enabled: body.enabled }),
+      201,
+    );
+  });
+
+  app.delete("/api/v1/schedules/:id", (c) => {
+    if (!scheduler) return coreError("scheduler unavailable", 503);
+    return c.json({ deleted: scheduler.remove(c.req.param("id")) });
   });
 
   // ---- scans ----

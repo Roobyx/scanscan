@@ -6,6 +6,7 @@ import { serveStatic } from "hono/bun";
 import { createApp } from "./app.js";
 import { readConfig } from "./config.js";
 import { CoreClient } from "./core/client.js";
+import { Scheduler } from "./scheduler.js";
 
 const config = readConfig();
 
@@ -23,7 +24,9 @@ if (config.coreBin && !existsSync(config.coreSocket)) {
 }
 
 const core = new CoreClient(config.coreSocket);
-const app = createApp({ config, core });
+const scheduler = new Scheduler(core);
+scheduler.start();
+const app = createApp({ config, core, scheduler });
 
 // Establish the core connection eagerly (with retries) so /health reports the
 // real core state and the first request is not slowed by a cold connect.
