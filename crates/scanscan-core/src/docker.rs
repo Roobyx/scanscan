@@ -4,6 +4,7 @@
 //! unreadable the collector reports `available: false` and the rest of
 //! scanscan keeps working.
 
+use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -73,28 +74,35 @@ impl DockerCollector {
         Ok(out)
     }
 
-    /// One non-streaming stats sample per running container.
+    /// One non-streaming stats sample per running container (fetched in parallel).
     pub fn stats(&self) -> Result<Vec<DockerStats>> {
         let value = self.get("/containers/json?all=0")?;
         let array = value.as_array().cloned().unwrap_or_default();
-        let mut out = Vec::new();
-        for item in &array {
-            let id = item.get("Id").and_then(Value::as_str).unwrap_or("");
-            if id.is_empty() {
-                continue;
-            }
-            let name = item
-                .get("Names")
-                .and_then(Value::as_array)
-                .and_then(|names| names.first())
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim_start_matches('/')
-                .to_string();
-            if let Ok(sample) = self.get(&format!("/containers/{id}/stats?stream=false")) {
-                out.push(parse_stats(id, &name, &sample));
-            }
-        }
+        let targets: Vec<(String, String)> = array
+            .iter()
+            .filter_map(|item| {
+                let id = item.get("Id").and_then(Value::as_str)?.to_string();
+                let name = item
+                    .get("Names")
+                    .and_then(Value::as_array)
+                    .and_then(|names| names.first())
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim_start_matches('/')
+                    .to_string();
+                Some((id, name))
+            })
+            .collect();
+
+        let out: Vec<DockerStats> = targets
+            .par_iter()
+            .filter_map(|(id, name)| {
+                let sample = self
+                    .get(&format!("/containers/{id}/stats?stream=false"))
+                    .ok()?;
+                Some(parse_stats(id, name, &sample))
+            })
+            .collect();
         Ok(out)
     }
 
@@ -220,6 +228,7 @@ fn http_get(target: &str, path: &str) -> Result<Vec<u8>> {
         .or_else(|| target.strip_prefix("http://"))
     {
         let stream = std::net::TcpStream::connect(addr)?;
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
         return http_request(stream, path);
     }
     #[cfg(unix)]
@@ -227,6 +236,7 @@ fn http_get(target: &str, path: &str) -> Result<Vec<u8>> {
         use std::os::unix::net::UnixStream;
         let path_only = target.strip_prefix("unix://").unwrap_or(target);
         let stream = UnixStream::connect(path_only)?;
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
         http_request(stream, path)
     }
     #[cfg(not(unix))]
