@@ -224,27 +224,13 @@ impl Daemon {
             methods::DOCKER_MOUNTS_FOR => {
                 let p: IdParam = params(req)?;
                 let reader = self.open(&p.id)?;
-                let engine = QueryEngine::new(&reader);
                 let host_root = std::env::var("SCANSCAN_HOST_ROOT")
                     .unwrap_or_else(|_| "/host".to_string());
-                let mounts: Vec<scanscan_ipc::MountInfo> = self
-                    .docker
-                    .mounts()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|mut mount| {
-                        let container_path = if mount.source == "/" {
-                            host_root.clone()
-                        } else {
-                            format!("{host_root}{}", mount.source)
-                        };
-                        if let Some(node) = crate::query::resolve_path(&reader, &container_path) {
-                            mount.node = Some(node);
-                            mount.size = Some(engine.subtree_bytes(node, Metric::Alloc));
-                        }
-                        mount
-                    })
-                    .collect();
+                let mounts = crate::query::correlate_mounts(
+                    &reader,
+                    self.docker.mounts().unwrap_or_default(),
+                    &host_root,
+                );
                 to_value(json!({ "mounts": mounts }))
             }
             "docker.status" => to_value(self.docker.status()),

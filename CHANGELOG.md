@@ -2,6 +2,13 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.5.1] - 2026-10-02
+
+### Fixed
+- `docker.mountsFor` could hang: resolving each mount via `IndexReader::children` was O(subtree)
+  per call, making N mounts O(N·n). It now builds a parent→children index once and computes each
+  distinct node's subtree bytes once.
+
 ## [1.5.0] - 2026-10-02
 
 ### Added

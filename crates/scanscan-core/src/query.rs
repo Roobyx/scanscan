@@ -3,7 +3,7 @@
 //! All operations scan contiguous subtree id ranges, so folder-scoped work is
 //! bounded by the subtree rather than the whole snapshot.
 
-use scanscan_ipc::{NodeKind, NodeRecord, Tile, TilesResponse};
+use scanscan_ipc::{MountInfo, NodeKind, NodeRecord, Tile, TilesResponse};
 use serde::Serialize;
 
 use crate::index::{flags, IndexReader, Kind};
@@ -873,6 +873,60 @@ pub struct Heatmap {
 /// The root node's own name may be included or omitted (e.g. `/host/mnt/data`
 /// or `/mnt/data` both resolve against a snapshot whose root is `host`).
 pub fn resolve_path(reader: &IndexReader, path: &str) -> Option<u32> {
+    let index = child_index(reader);
+    resolve_with(&index, reader, path)
+}
+
+/// Correlate Docker mounts with snapshot nodes, filling `node` and `size`.
+///
+/// Builds a parent→children index once (so resolving N mounts is O(n + N·depth)
+/// rather than O(N·n)) and computes each distinct node's subtree bytes once.
+pub fn correlate_mounts(
+    reader: &IndexReader,
+    mounts: Vec<MountInfo>,
+    host_root: &str,
+) -> Vec<MountInfo> {
+    let index = child_index(reader);
+    let engine = QueryEngine::new(reader);
+    let mut size_cache: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
+
+    mounts
+        .into_iter()
+        .map(|mut mount| {
+            let container_path = if mount.source == "/" {
+                host_root.to_string()
+            } else {
+                format!("{host_root}{}", mount.source)
+            };
+            if let Some(node) = resolve_with(&index, reader, &container_path) {
+                mount.node = Some(node);
+                let size = *size_cache
+                    .entry(node)
+                    .or_insert_with(|| engine.subtree_bytes(node, Metric::Alloc));
+                mount.size = Some(size);
+            }
+            mount
+        })
+        .collect()
+}
+
+fn child_index(reader: &IndexReader) -> std::collections::HashMap<u32, Vec<u32>> {
+    let mut index: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    for id in 0..reader.len() {
+        if let Some(rec) = reader.record(id) {
+            if rec.parent != crate::index::NO_PARENT {
+                index.entry(rec.parent).or_default().push(id);
+            }
+        }
+    }
+    index
+}
+
+fn resolve_with(
+    index: &std::collections::HashMap<u32, Vec<u32>>,
+    reader: &IndexReader,
+    path: &str,
+) -> Option<u32> {
     let trimmed = path.trim_matches('/');
     if trimmed.is_empty() {
         return Some(0);
@@ -882,10 +936,8 @@ pub fn resolve_path(reader: &IndexReader, path: &str) -> Option<u32> {
         if current == 0 && reader.name(0) == component {
             continue;
         }
-        let next = reader
-            .children(current)
-            .into_iter()
-            .find(|child| reader.name(*child) == component)?;
+        let kids = index.get(&current)?;
+        let next = kids.iter().copied().find(|child| reader.name(*child) == component)?;
         current = next;
     }
     Some(current)
