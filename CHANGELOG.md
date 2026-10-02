@@ -2,6 +2,17 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.1.0] - 2026-10-02
+
+### Added
+- Host filesystem scanning. The compose stack bind-mounts the host read-only at `/host`
+  (`HOST_MOUNT`) and defaults `SCANSCAN_ROOTS` to `/host`; the scan form pre-fills the configured
+  roots. The app container runs as root so the core can read the whole host (read-only).
+
+### Changed
+- Pseudo-filesystem exclusions (`proc`, `sys`, `dev`, `run`, `snap`) are now applied under every
+  root, not only `/`.
+
 ## [1.0.1] - 2026-10-02
 
 ### Fixed

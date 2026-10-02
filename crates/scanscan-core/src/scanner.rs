@@ -201,9 +201,14 @@ pub fn build_exclusions(options: &ScanOptions, roots: &[PathBuf]) -> Result<Glob
     for pattern in &options.exclusions {
         builder.add(Glob::new(pattern).map_err(|e| CoreError::Config(format!("bad glob '{pattern}': {e}")))?);
     }
-    if roots.iter().any(|r| r == Path::new("/")) {
-        for pseudo in ["/proc", "/sys", "/dev", "/run", "/snap", "/proc/**", "/sys/**", "/dev/**", "/run/**", "/snap/**"] {
-            builder.add(Glob::new(pseudo).expect("static glob"));
+    // Exclude pseudo-filesystems under every root (e.g. /proc, or /host/proc
+    // when the host is mounted at /host).
+    for root in roots {
+        for name in ["proc", "sys", "dev", "run", "snap"] {
+            let path = root.join(name);
+            let path = path.to_string_lossy();
+            builder.add(Glob::new(&path).expect("static glob"));
+            builder.add(Glob::new(&format!("{path}/**")).expect("static glob"));
         }
     }
     builder

@@ -43,6 +43,17 @@ export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/health");
 }
 
+export interface ServerConfig {
+  dataDir: string;
+  bind: string;
+  roots: string[];
+  dockerEnabled: boolean;
+}
+
+export function getConfig(): Promise<ServerConfig> {
+  return request<ServerConfig>("/config");
+}
+
 export async function listScans(): Promise<ScanSummary[]> {
   const body = await request<{ scans: ScanSummary[] }>("/scans");
   return body.scans;

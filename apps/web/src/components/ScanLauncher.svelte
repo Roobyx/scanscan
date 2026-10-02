@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+
   import { isTerminalState } from "@scanscan/api-types";
   import type { ScanSummary } from "@scanscan/api-types";
 
-  import { createScan, errorMessage, getScan } from "../lib/api.js";
+  import { createScan, errorMessage, getConfig, getScan } from "../lib/api.js";
   import { formatBytes } from "../lib/format.js";
 
   interface Props {
@@ -16,6 +18,19 @@
   let error = $state<string | null>(null);
   let busy = $state(false);
   let timer: ReturnType<typeof setInterval> | null = null;
+
+  onMount(() => {
+    void (async () => {
+      try {
+        const config = await getConfig();
+        if (config.roots.length > 0) {
+          rootsText = config.roots.join(", ");
+        }
+      } catch {
+        // Keep the default root when the config cannot be loaded.
+      }
+    })();
+  });
 
   function stopPolling(): void {
     if (timer !== null) {

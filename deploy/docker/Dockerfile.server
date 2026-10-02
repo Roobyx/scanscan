@@ -48,7 +48,9 @@ ENV SCANSCAN_DATA_DIR=/data \
 EXPOSE 8080
 VOLUME ["/data"]
 
-USER scanscan
+# Runs as root by default so the core can read the whole (read-only) host mount.
+# Override with `user:` in compose to drop privileges, but then grant
+# CAP_DAC_READ_SEARCH (or accept partial scans).
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD wget -qO- http://127.0.0.1:8080/api/v1/health || exit 1
