@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming";
 
 import type { ServerConfig } from "./config.js";
 import type { CoreApi } from "./core/client.js";
+import { openApiDocument } from "./openapi.js";
 import type { Scheduler } from "./scheduler.js";
 
 export interface AppDeps {
@@ -56,6 +57,8 @@ export function createApp({ config, core, scheduler, startedAt = Date.now() }: A
       dockerEnabled: config.dockerEnabled,
     }),
   );
+
+  app.get("/api/v1/openapi.json", (c) => c.json(openApiDocument));
 
   app.get("/api/v1/host/mounts", async (c) => {
     try {

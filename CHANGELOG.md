@@ -2,6 +2,12 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.7.0] - 2026-10-02
+
+### Added
+- OpenAPI 3 document served at `GET /api/v1/openapi.json`, describing every endpoint (core, scans,
+  tree, query, docker, schedules) for the web client and the docs site.
+
 ## [1.6.0] - 2026-10-02
 
 ### Added
