@@ -63,9 +63,15 @@ impl Daemon {
             methods::HOST_MOUNTS => {
                 let host_root = std::env::var("SCANSCAN_HOST_ROOT")
                     .unwrap_or_else(|_| "/host".to_string());
+                let mounts_file = std::env::var("SCANSCAN_HOST_MOUNTS")
+                    .ok()
+                    .map(std::path::PathBuf::from);
                 to_value(json!({
                     "hostRoot": host_root,
-                    "mounts": crate::host::read_mounts(std::path::Path::new(&host_root)),
+                    "mounts": crate::host::read_mounts(
+                        std::path::Path::new(&host_root),
+                        mounts_file.as_deref(),
+                    ),
                 }))
             }
             methods::SCANS_CREATE => {

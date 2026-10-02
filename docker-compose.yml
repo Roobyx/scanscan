@@ -12,12 +12,15 @@ services:
       SCANSCAN_CORE_SOCKET: /run/scanscan/scanscan.sock
       SCANSCAN_ROOTS: ${SCANSCAN_ROOTS:-/host}
       SCANSCAN_HOST_ROOT: /host
+      SCANSCAN_HOST_MOUNTS: /host.mounts
       SCANSCAN_DOCKER: "true"
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     volumes:
       - scanscan-data:/data
       # Host filesystem, read-only. Override HOST_MOUNT to narrow the scope.
       - ${HOST_MOUNT:-/}:/host:ro
+      # The host's mount table, for the drive picker.
+      - /proc/mounts:/host.mounts:ro
     depends_on:
       - docker-socket-proxy
     healthcheck:

@@ -2,6 +2,13 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.2.1] - 2026-10-02
+
+### Fixed
+- The host drive picker listed the container's mounts instead of the host's. The stack now mounts
+  the host's `/proc/mounts` at `/host.mounts` (`SCANSCAN_HOST_MOUNTS`) and prefers it when reading
+  mounts.
+
 ## [1.2.0] - 2026-10-02
 
 ### Added

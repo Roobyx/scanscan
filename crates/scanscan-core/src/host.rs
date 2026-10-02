@@ -29,9 +29,18 @@ const REAL_FS: [&str; 16] = [
     "iso9660", "udf", "reiserfs", "jfs", "hfsplus",
 ];
 
-/// Read the host mount table under `host_root`, keeping real filesystems.
-pub fn read_mounts(host_root: &Path) -> Vec<HostMount> {
-    let candidates = [host_root.join("proc/mounts"), PathBuf::from("/proc/mounts")];
+/// Read the host mount table, keeping real filesystems.
+///
+/// `mounts_file` is an explicit host `/proc/mounts` mounted into the container
+/// (the reliable source); otherwise we try `<host_root>/proc/mounts`, then the
+/// container's own `/proc/mounts` as a last resort.
+pub fn read_mounts(host_root: &Path, mounts_file: Option<&Path>) -> Vec<HostMount> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(file) = mounts_file {
+        candidates.push(file.to_path_buf());
+    }
+    candidates.push(host_root.join("proc/mounts"));
+    candidates.push(PathBuf::from("/proc/mounts"));
     let content = candidates
         .iter()
         .find_map(|path| std::fs::read_to_string(path).ok())
@@ -86,5 +95,21 @@ mod tests {
     #[test]
     fn unescapes_octal() {
         assert_eq!(unescape("/mnt/my\\040disk"), "/mnt/my disk");
+    }
+
+    #[test]
+    fn keeps_only_real_filesystems() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mounts = tmp.path().join("mounts");
+        std::fs::write(
+            &mounts,
+            "/dev/sda1 / ext4 rw 0 0\nproc /proc proc rw 0 0\ntmpfs /run tmpfs rw 0 0\n/dev/sdb1 /mnt/data xfs rw 0 0\n",
+        )
+        .unwrap();
+        let found = read_mounts(Path::new("/host"), Some(&mounts));
+        let paths: Vec<&str> = found.iter().map(|m| m.path.as_str()).collect();
+        assert_eq!(paths, vec!["/", "/mnt/data"]);
+        assert_eq!(found[0].container_path, "/host");
+        assert_eq!(found[1].container_path, "/host/mnt/data");
     }
 }
