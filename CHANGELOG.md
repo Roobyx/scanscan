@@ -2,6 +2,15 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.9.0] - 2026-10-03
+
+### Added
+- Content-addressed block store (ADR-2). The writer chunks the fixed-size columns (nodes, subtree,
+  inode) into 64K-node zstd-compressed blocks stored under `snapshots/blocks/<ab>/<hash>`, addressed
+  by BLAKE3 and deduplicated. The manifest records block references; the reader decompresses blocks
+  on demand with a small cache. Pre-CAS snapshots fall back to memory-mapped columns.
+- `snapshots gc` now also sweeps CAS blocks no longer referenced by any live manifest.
+
 ## [1.8.0] - 2026-10-03
 
 ### Added
