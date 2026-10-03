@@ -406,25 +406,34 @@ pub fn serve(daemon: Arc<Daemon>, socket: &std::path::Path) -> crate::error::Res
                 return;
             };
             let reader = BufReader::new(stream);
-            let mut writer = write_stream;
+            // Process each request on its own thread and write responses under a
+            // lock, so a slow call (e.g. docker.stats) never blocks the others.
+            // Responses are matched by id, so ordering does not matter.
+            let writer = Arc::new(std::sync::Mutex::new(write_stream));
             for line in reader.lines() {
                 let Ok(line) = line else { break };
                 if line.trim().is_empty() {
                     continue;
                 }
-                let response = match serde_json::from_str::<RpcRequest>(&line) {
-                    Ok(req) => daemon.dispatch(&req),
-                    Err(e) => RpcResponse::failure(0, RpcError::new(codes::PARSE_ERROR, e.to_string())),
-                };
-                let mut bytes = match serde_json::to_vec(&response) {
-                    Ok(b) => b,
-                    Err(_) => continue,
-                };
-                bytes.push(b'\n');
-                if writer.write_all(&bytes).is_err() {
-                    break;
-                }
-                let _ = writer.flush();
+                let daemon = daemon.clone();
+                let writer = Arc::clone(&writer);
+                std::thread::spawn(move || {
+                    let response = match serde_json::from_str::<RpcRequest>(&line) {
+                        Ok(req) => daemon.dispatch(&req),
+                        Err(e) => {
+                            RpcResponse::failure(0, RpcError::new(codes::PARSE_ERROR, e.to_string()))
+                        }
+                    };
+                    let mut bytes = match serde_json::to_vec(&response) {
+                        Ok(b) => b,
+                        Err(_) => return,
+                    };
+                    bytes.push(b'\n');
+                    if let Ok(mut w) = writer.lock() {
+                        let _ = w.write_all(&bytes);
+                        let _ = w.flush();
+                    }
+                });
             }
         });
     }

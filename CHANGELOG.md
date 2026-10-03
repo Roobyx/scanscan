@@ -2,6 +2,14 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.9.3] - 2026-10-03
+
+### Fixed
+- The Docker tab returned HTTP 502 while scans were running. The core daemon processed requests
+  sequentially per connection, so a slow Docker call (stats across many containers) blocked the
+  shared connection until the server timed out. Each request now runs on its own thread, and
+  responses are written under a lock (matched by id, so ordering does not matter).
+
 ## [1.9.2] - 2026-10-03
 
 ### Added
