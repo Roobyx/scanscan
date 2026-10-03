@@ -13,6 +13,8 @@
   let rootsText = $state("/");
   let mounts = $state<HostMount[]>([]);
   let hostRoot = $state("/host");
+  let excludeText = $state("");
+  let crossFs = $state(false);
   let error = $state<string | null>(null);
   let busy = $state(false);
 
@@ -55,7 +57,11 @@
     }
     busy = true;
     try {
-      const created = await createScan(roots);
+      const exclusions = excludeText
+        .split(/[\n,]+/)
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+      const created = await createScan(roots, { oneFileSystem: !crossFs, exclusions });
       oncreated(created.id);
     } catch (cause) {
       error = errorMessage(cause);
@@ -99,6 +105,21 @@
     <button type="submit" disabled={busy}>{busy ? "Scanning…" : "Scan"}</button>
   </form>
 
+  <label class="cross">
+    <input type="checkbox" bind:checked={crossFs} disabled={busy} />
+    <span>Include other mounted filesystems (otherwise it stops at mount boundaries)</span>
+  </label>
+
+  <label class="excl">
+    <span>Exclude paths (globs, one per line or comma-separated)</span>
+    <input
+      type="text"
+      bind:value={excludeText}
+      placeholder="{hostRoot}/mnt/piDrive, {hostRoot}/mnt/backupDrive"
+      disabled={busy}
+    />
+  </label>
+
   {#if error}
     <p class="error" role="alert">{error}</p>
   {/if}
@@ -138,6 +159,33 @@
   }
 
   .mounts select {
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+
+  .cross {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .excl {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-top: 0.6rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .excl input {
     padding: 0.5rem 0.6rem;
     border: 1px solid var(--border);
     border-radius: 6px;

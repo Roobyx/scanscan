@@ -75,14 +75,18 @@ export async function listScans(): Promise<ScanSummary[]> {
   return body.scans;
 }
 
-export function createScan(
-  roots: string[],
-  options?: { incremental?: boolean },
-): Promise<ScanSummary> {
+export interface CreateScanOptions {
+  incremental?: boolean;
+  oneFileSystem?: boolean;
+  exclusions?: string[];
+}
+
+export function createScan(roots: string[], options?: CreateScanOptions): Promise<ScanSummary> {
+  const hasOptions = options && Object.keys(options).length > 0;
   return request<ScanSummary>("/scans", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(options ? { roots, options } : { roots }),
+    body: JSON.stringify(hasOptions ? { roots, options } : { roots }),
   });
 }
 

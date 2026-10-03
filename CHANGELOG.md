@@ -2,6 +2,13 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.9.2] - 2026-10-03
+
+### Added
+- The scan form now exposes **exclusions** (gitignore-style globs) and an **"include other mounted
+  filesystems"** toggle. By default a scan stops at filesystem boundaries, so scanning `/host`
+  scans only the root filesystem and skips separately-mounted drives (`/mnt/piDrive`, etc.).
+
 ## [1.9.1] - 2026-10-03
 
 ### Added
