@@ -2,12 +2,15 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
-## [1.10.0] - 2026-10-03
+## [1.9.1] - 2026-10-03
 
 ### Added
-- Parquet export: `GET /api/v1/scans/:id/export?format=parquet` writes the subtree as a Parquet
-  file (columns: id, parent, name, kind, sizeAlloc, sizeApparent, subtreeSize, mtimeMs) via
-  `@dsnp/parquetjs`.
+- A per-scan **Delete** button in the header, so individual snapshots can be removed from the UI
+  (previously only GC was available).
+
+### Changed
+- Reverted the experimental Parquet export: its dependency failed to resolve at build time, so it
+  will return with a working approach.
 
 ## [1.9.0] - 2026-10-03
 

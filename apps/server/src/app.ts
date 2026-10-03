@@ -22,62 +22,6 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/** Write a subtree as Parquet (temp file), then return it as an attachment. */
-async function parquetResponse(
-  dataDir: string,
-  items: Array<Record<string, unknown>>,
-  snapshot: string,
-): Promise<Response> {
-  const parquet = (await import("@dsnp/parquetjs")) as unknown as {
-    ParquetSchema: new (schema: Record<string, unknown>) => unknown;
-    ParquetWriter: {
-      openFile: (
-        schema: unknown,
-        path: string,
-      ) => Promise<{
-        appendRow: (row: Record<string, unknown>) => Promise<void>;
-        close: () => Promise<void>;
-      }>;
-    };
-  };
-  const schema = new parquet.ParquetSchema({
-    id: { type: "INT32" },
-    parent: { type: "INT32", optional: true },
-    name: { type: "UTF8" },
-    kind: { type: "UTF8" },
-    sizeAlloc: { type: "INT64" },
-    sizeApparent: { type: "INT64" },
-    subtreeSize: { type: "INT32" },
-    mtimeMs: { type: "INT64" },
-  });
-  const path = `${dataDir}/export-${Date.now()}.parquet`;
-  const writer = await parquet.ParquetWriter.openFile(schema, path);
-  for (const item of items) {
-    const parent = item["parent"];
-    await writer.appendRow({
-      id: Number(item["id"] ?? 0),
-      parent: parent === undefined || parent === null ? undefined : Number(parent),
-      name: String(item["name"] ?? ""),
-      kind: String(item["kind"] ?? ""),
-      sizeAlloc: Number(item["sizeAlloc"] ?? 0),
-      sizeApparent: Number(item["sizeApparent"] ?? 0),
-      subtreeSize: Number(item["subtreeSize"] ?? 0),
-      mtimeMs: Number(item["mtimeMs"] ?? 0),
-    });
-  }
-  await writer.close();
-  const bytes = await Bun.file(path).arrayBuffer();
-  const { unlink } = await import("node:fs/promises");
-  await unlink(path).catch(() => {});
-  return new Response(bytes, {
-    status: 200,
-    headers: {
-      "content-type": "application/octet-stream",
-      "content-disposition": `attachment; filename="scanscan-${snapshot}.parquet"`,
-    },
-  });
-}
-
 /** Build the Hono application (transport-agnostic; easy to unit test). */
 export function createApp({ config, core, scheduler, startedAt = Date.now() }: AppDeps): Hono {
   const app = new Hono();
@@ -389,9 +333,6 @@ export function createApp({ config, core, scheduler, startedAt = Date.now() }: A
           "content-type": "text/csv; charset=utf-8",
           "content-disposition": `attachment; filename="scanscan-${c.req.param("id")}.csv"`,
         });
-      }
-      if (format === "parquet") {
-        return await parquetResponse(config.dataDir, items, c.req.param("id"));
       }
       return c.json({ snapshot: c.req.param("id"), nodes: items });
     } catch (error) {

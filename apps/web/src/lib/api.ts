@@ -86,6 +86,10 @@ export function createScan(
   });
 }
 
+export async function deleteScan(id: string): Promise<void> {
+  await request<unknown>(`/scans/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function getScan(id: string): Promise<ScanSummary> {
   return request<ScanSummary>(`/scans/${encodeURIComponent(id)}`);
 }

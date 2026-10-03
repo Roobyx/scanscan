@@ -39,6 +39,7 @@
     getTop,
     getTree,
     listScans,
+    deleteScan,
     runGc,
   } from "./lib/api.js";
   import type { HistogramDim } from "./lib/api.js";
@@ -224,6 +225,22 @@
     const scan = scans.find((entry) => entry.id === id);
     if (scan?.state === "completed") {
       await selectScan(id);
+    }
+  }
+
+  async function handleDelete(): Promise<void> {
+    const id = selectedId;
+    if (!id) return;
+    if (!window.confirm("Delete this snapshot? Scanned files are not touched.")) return;
+    try {
+      await deleteScan(id);
+      selectedId = null;
+      scopeId = 0;
+      await loadScans();
+      const newest = scans.find((scan) => scan.state === "completed");
+      if (newest) await selectScan(newest.id);
+    } catch (cause) {
+      error = errorMessage(cause);
     }
   }
 
@@ -483,6 +500,9 @@
         </select>
       {/if}
       <button type="button" class="action" onclick={() => (selectedId = null)}>+ New scan</button>
+      {#if selectedId}
+        <button type="button" class="action" onclick={handleDelete}>Delete</button>
+      {/if}
       <div class="toggle" role="group" aria-label="Color mode">
         <button type="button" class:active={colorMode === "size"} onclick={() => (colorMode = "size")}>
           Size
