@@ -556,6 +556,8 @@ impl Walker<'_> {
                     uid: entry.uid,
                     gid: entry.gid,
                     mode: entry.mode,
+                    ino: entry.ino,
+                    dev: entry.dev,
                 })?;
                 self.tick(&entry.path);
                 return Ok(());
