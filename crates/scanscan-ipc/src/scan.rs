@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct ScanOptions {
     /// Absolute roots to scan. Each is canonicalized before the walk.
+    #[serde(default)]
     pub roots: Vec<String>,
     /// Reuse unchanged subtrees from the parent snapshot when possible.
     #[serde(default)]

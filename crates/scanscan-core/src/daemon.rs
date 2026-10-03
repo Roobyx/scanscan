@@ -70,10 +70,10 @@ impl Daemon {
             }
             methods::SCANS_CREATE => {
                 let p: ScansCreate = params(req)?;
-                let options = match p.options {
-                    Some(o) => o,
-                    None => ScanOptions::new(p.roots.unwrap_or_default()),
-                };
+                let mut options = p.options.unwrap_or_else(|| ScanOptions::new(Vec::new()));
+                if options.roots.is_empty() {
+                    options.roots = p.roots.unwrap_or_default();
+                }
                 let summary = self
                     .store
                     .start(options)
