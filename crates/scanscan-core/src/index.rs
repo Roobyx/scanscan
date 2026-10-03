@@ -15,11 +15,17 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, Result};
+
+/// Nodes per CAS block (fixed-size columns are chunked at this granularity).
+pub const BLOCK_NODES: usize = 65_536;
+/// zstd compression level for CAS blocks.
+const ZSTD_LEVEL: i32 = 3;
 
 /// Bump on any layout change; readers reject unknown versions.
 pub const FORMAT_VERSION: u32 = 2;
@@ -186,6 +192,20 @@ pub struct Manifest {
     /// True when an `inode.bin` column (ino+dev per node) is present.
     #[serde(default)]
     pub has_inodes: bool,
+    /// Content-addressed column blocks (empty for pre-CAS snapshots).
+    #[serde(default)]
+    pub blocks: Vec<BlockRef>,
+}
+
+/// A zstd-compressed, BLAKE3-addressed column block in the CAS.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockRef {
+    pub column: String,
+    pub start: u32,
+    pub count: u32,
+    pub hash: String,
+    pub raw_len: u32,
+    pub comp_len: u32,
 }
 
 /// Input for a single node handed to [`IndexWriter::push`].
@@ -215,12 +235,15 @@ struct Frame {
 /// `subtree_size` on the way back up using an O(depth) stack.
 pub struct IndexWriter {
     dir: PathBuf,
-    nodes: BufWriter<File>,
+    cas_dir: PathBuf,
     names: BufWriter<File>,
-    inodes: BufWriter<File>,
+    nodes_buf: Vec<u8>,
+    inode_buf: Vec<u8>,
     names_len: u64,
     subtree: Vec<u32>,
     count: u32,
+    flushed: u32,
+    blocks: Vec<BlockRef>,
     stack: Vec<Frame>,
     stats: ScanStats,
     errors: Vec<ScanError>,
@@ -228,27 +251,59 @@ pub struct IndexWriter {
     extensions: Vec<String>,
 }
 
+/// The shared CAS directory for a snapshot: `<snapshot_dir>/../blocks`.
+fn cas_dir_for(dir: &Path) -> PathBuf {
+    dir.parent().unwrap_or(dir).join("blocks")
+}
+
 impl IndexWriter {
-    /// Create the snapshot directory and open the column files.
+    /// Create the snapshot directory, the names column, and the CAS directory.
     pub fn create(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
-        let nodes = File::create(dir.join("nodes.bin"))?;
+        let cas_dir = cas_dir_for(dir);
+        std::fs::create_dir_all(&cas_dir)?;
         let names = File::create(dir.join("names.bin"))?;
-        let inodes = File::create(dir.join("inode.bin"))?;
         Ok(Self {
             dir: dir.to_path_buf(),
-            nodes: BufWriter::with_capacity(1 << 20, nodes),
+            cas_dir,
             names: BufWriter::with_capacity(1 << 20, names),
-            inodes: BufWriter::with_capacity(1 << 20, inodes),
+            nodes_buf: Vec::with_capacity(BLOCK_NODES * RECORD_SIZE),
+            inode_buf: Vec::with_capacity(BLOCK_NODES * INODE_SIZE),
             names_len: 0,
             subtree: Vec::new(),
             count: 0,
+            flushed: 0,
+            blocks: Vec::new(),
             stack: Vec::new(),
             stats: ScanStats::default(),
             errors: Vec::new(),
             ext_ids: HashMap::new(),
             extensions: vec![String::new()],
         })
+    }
+
+    /// Compress, hash and store one column block in the CAS (dedup by hash).
+    fn flush_block(&mut self, column: &str, start: u32, count: u32, raw: &[u8]) -> Result<()> {
+        if raw.is_empty() {
+            return Ok(());
+        }
+        let compressed = zstd::encode_all(raw, ZSTD_LEVEL)?;
+        let hash = blake3::hash(&compressed).to_hex().to_string();
+        let sub = self.cas_dir.join(&hash[0..2]);
+        std::fs::create_dir_all(&sub)?;
+        let path = sub.join(&hash);
+        if !path.exists() {
+            std::fs::write(&path, &compressed)?;
+        }
+        self.blocks.push(BlockRef {
+            column: column.to_string(),
+            start,
+            count,
+            hash,
+            raw_len: raw.len() as u32,
+            comp_len: compressed.len() as u32,
+        });
+        Ok(())
     }
 
     pub fn node_count(&self) -> u32 {
@@ -310,15 +365,25 @@ impl IndexWriter {
             gid: node.gid,
             mode: node.mode,
         };
-        self.nodes.write_all(&rec.encode())?;
+        self.nodes_buf.extend_from_slice(&rec.encode());
 
         let mut inode_bytes = [0u8; INODE_SIZE];
         inode_bytes[0..8].copy_from_slice(&node.ino.to_le_bytes());
         inode_bytes[8..16].copy_from_slice(&node.dev.to_le_bytes());
-        self.inodes.write_all(&inode_bytes)?;
+        self.inode_buf.extend_from_slice(&inode_bytes);
 
         self.subtree.push(0);
         self.count += 1;
+
+        if self.nodes_buf.len() >= BLOCK_NODES * RECORD_SIZE {
+            let start = self.flushed;
+            let count = BLOCK_NODES as u32;
+            let nodes = std::mem::take(&mut self.nodes_buf);
+            let inodes = std::mem::take(&mut self.inode_buf);
+            self.flush_block("nodes", start, count, &nodes)?;
+            self.flush_block("inode", start, count, &inodes)?;
+            self.flushed += count;
+        }
 
         match node.kind {
             Kind::Directory => self.stats.dirs += 1,
@@ -362,16 +427,30 @@ impl IndexWriter {
             self.subtree[frame.id as usize] = frame.acc;
         }
 
-        self.nodes.flush()?;
         self.names.flush()?;
-        self.inodes.flush()?;
 
-        let mut subtree_file = BufWriter::new(File::create(self.dir.join("subtree.bin"))?);
-        for size in &self.subtree {
-            subtree_file.write_all(&size.to_le_bytes())?;
+        // Flush the trailing partial block.
+        if self.count > self.flushed {
+            let start = self.flushed;
+            let count = self.count - self.flushed;
+            let nodes = std::mem::take(&mut self.nodes_buf);
+            let inodes = std::mem::take(&mut self.inode_buf);
+            self.flush_block("nodes", start, count, &nodes)?;
+            self.flush_block("inode", start, count, &inodes)?;
+            self.flushed = self.count;
         }
-        subtree_file.flush()?;
 
+        // Subtree sizes as u32 blocks.
+        let subtree: Vec<u32> = std::mem::take(&mut self.subtree);
+        for (i, chunk) in subtree.chunks(BLOCK_NODES).enumerate() {
+            let mut raw = Vec::with_capacity(chunk.len() * 4);
+            for size in chunk {
+                raw.extend_from_slice(&size.to_le_bytes());
+            }
+            self.flush_block("subtree", (i * BLOCK_NODES) as u32, chunk.len() as u32, &raw)?;
+        }
+
+        let blocks = std::mem::take(&mut self.blocks);
         let manifest = Manifest {
             format_version: FORMAT_VERSION,
             id: manifest_seed.id,
@@ -385,6 +464,7 @@ impl IndexWriter {
             extensions: self.extensions,
             errors: self.errors,
             has_inodes: true,
+            blocks,
         };
 
         let manifest_path = self.dir.join("manifest.json");
@@ -403,14 +483,17 @@ pub struct ManifestSeed {
     pub started_at_ms: i64,
 }
 
-/// Read-only view over a snapshot, backed by memory-mapped columns.
+/// Read-only view over a snapshot. Fixed-size columns are read from CAS blocks
+/// (decompressed on demand); older snapshots fall back to memory-mapped files.
 pub struct IndexReader {
     dir: PathBuf,
+    cas_dir: PathBuf,
     manifest: Manifest,
     nodes: Option<Mmap>,
     names: Option<Mmap>,
     subtree: Option<Mmap>,
     inodes: Option<Mmap>,
+    cache: Mutex<HashMap<(u8, usize), Arc<Vec<u8>>>>,
 }
 
 impl IndexReader {
@@ -425,12 +508,51 @@ impl IndexReader {
         }
         Ok(Self {
             dir: dir.to_path_buf(),
+            cas_dir: cas_dir_for(dir),
             manifest,
             nodes: map_opt(&dir.join("nodes.bin"))?,
             names: map_opt(&dir.join("names.bin"))?,
             subtree: map_opt(&dir.join("subtree.bin"))?,
             inodes: map_opt(&dir.join("inode.bin"))?,
+            cache: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Load and decompress one CAS column block, with a small cache.
+    /// Column ids: 0 = nodes, 1 = subtree, 2 = inode.
+    fn column_block(&self, column: u8, block_index: usize) -> Option<Arc<Vec<u8>>> {
+        let key = (column, block_index);
+        if let Ok(cache) = self.cache.lock() {
+            if let Some(raw) = cache.get(&key) {
+                return Some(raw.clone());
+            }
+        }
+        let name = match column {
+            0 => "nodes",
+            1 => "subtree",
+            2 => "inode",
+            _ => return None,
+        };
+        let start = (block_index * BLOCK_NODES) as u32;
+        let block = self
+            .manifest
+            .blocks
+            .iter()
+            .find(|b| b.column == name && b.start == start)?;
+        if block.hash.len() < 2 {
+            return None;
+        }
+        let path = self.cas_dir.join(&block.hash[0..2]).join(&block.hash);
+        let compressed = std::fs::read(path).ok()?;
+        let raw = zstd::decode_all(&compressed[..]).ok()?;
+        let arc = Arc::new(raw);
+        if let Ok(mut cache) = self.cache.lock() {
+            if cache.len() > 64 {
+                cache.clear();
+            }
+            cache.insert(key, arc.clone());
+        }
+        Some(arc)
     }
 
     pub fn dir(&self) -> &Path {
@@ -450,6 +572,15 @@ impl IndexReader {
     }
 
     pub fn record(&self, id: u32) -> Option<Record> {
+        if !self.manifest.blocks.is_empty() {
+            let block_index = id as usize / BLOCK_NODES;
+            let raw = self.column_block(0, block_index)?;
+            let offset = (id as usize % BLOCK_NODES) * RECORD_SIZE;
+            if offset + RECORD_SIZE > raw.len() {
+                return None;
+            }
+            return Some(Record::decode(&raw[offset..offset + RECORD_SIZE]));
+        }
         let nodes = self.nodes.as_ref()?;
         let start = id as usize * RECORD_SIZE;
         let end = start + RECORD_SIZE;
@@ -486,6 +617,17 @@ impl IndexReader {
     }
 
     pub fn subtree_size(&self, id: u32) -> u32 {
+        if !self.manifest.blocks.is_empty() {
+            let block_index = id as usize / BLOCK_NODES;
+            let Some(raw) = self.column_block(1, block_index) else {
+                return 0;
+            };
+            let offset = (id as usize % BLOCK_NODES) * 4;
+            if offset + 4 > raw.len() {
+                return 0;
+            }
+            return u32::from_le_bytes([raw[offset], raw[offset + 1], raw[offset + 2], raw[offset + 3]]);
+        }
         match self.subtree.as_ref() {
             Some(mm) => {
                 let start = id as usize * 4;
@@ -507,6 +649,19 @@ impl IndexReader {
 
     /// `(ino, dev)` for a node, when the snapshot carries an inode column.
     pub fn inode(&self, id: u32) -> Option<(u64, u64)> {
+        if !self.manifest.blocks.is_empty() {
+            let block_index = id as usize / BLOCK_NODES;
+            let raw = self.column_block(2, block_index)?;
+            let offset = (id as usize % BLOCK_NODES) * INODE_SIZE;
+            if offset + INODE_SIZE > raw.len() {
+                return None;
+            }
+            let mut ino = [0u8; 8];
+            let mut dev = [0u8; 8];
+            ino.copy_from_slice(&raw[offset..offset + 8]);
+            dev.copy_from_slice(&raw[offset + 8..offset + 16]);
+            return Some((u64::from_le_bytes(ino), u64::from_le_bytes(dev)));
+        }
         let mm = self.inodes.as_ref()?;
         let start = id as usize * INODE_SIZE;
         if start + INODE_SIZE > mm.len() {
@@ -675,12 +830,13 @@ mod tests {
     #[test]
     fn writer_computes_subtree_sizes_and_children() {
         let tmp = tempfile::tempdir().unwrap();
-        let manifest = write_small(tmp.path());
+        let snap = tmp.path().join("snap");
+        let manifest = write_small(&snap);
         assert_eq!(manifest.node_count, 4);
         assert_eq!(manifest.stats.files, 2);
         assert_eq!(manifest.stats.dirs, 2);
 
-        let reader = IndexReader::open(tmp.path()).unwrap();
+        let reader = IndexReader::open(&snap).unwrap();
         assert_eq!(reader.name(0), "root");
         assert_eq!(reader.name(3), "b.bin");
         assert_eq!(reader.subtree_size(0), 4);

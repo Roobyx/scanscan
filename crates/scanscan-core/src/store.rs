@@ -228,6 +228,8 @@ impl Store {
             self.delete(&scan.id)?;
             removed.push(scan.id);
         }
+        // Sweep CAS blocks no longer referenced by any live manifest.
+        let _ = sweep_blocks(&self.snapshots_dir);
         Ok(removed)
     }
 }
@@ -356,6 +358,38 @@ fn manifest_to_summary(m: &Manifest) -> ScanSummary {
         bytes_alloc: m.stats.bytes_alloc,
         errors: m.stats.errors,
     }
+}
+
+/// Delete CAS blocks not referenced by any live snapshot manifest.
+fn sweep_blocks(snapshots_dir: &Path) -> Result<usize> {
+    let cas_dir = snapshots_dir.join("blocks");
+    if !cas_dir.exists() {
+        return Ok(0);
+    }
+    let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in std::fs::read_dir(snapshots_dir)?.flatten() {
+        let manifest_path = entry.path().join("manifest.json");
+        if let Ok(bytes) = std::fs::read(&manifest_path) {
+            if let Ok(manifest) = serde_json::from_slice::<Manifest>(&bytes) {
+                for block in &manifest.blocks {
+                    referenced.insert(block.hash.clone());
+                }
+            }
+        }
+    }
+    let mut removed = 0usize;
+    for shard in std::fs::read_dir(&cas_dir)?.flatten() {
+        if !shard.path().is_dir() {
+            continue;
+        }
+        for file in std::fs::read_dir(shard.path())?.flatten() {
+            let name = file.file_name().to_string_lossy().into_owned();
+            if !referenced.contains(&name) && std::fs::remove_file(file.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
 }
 
 /// Newest completed snapshot directory other than `current`, for incremental reuse.

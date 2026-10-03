@@ -446,7 +446,8 @@ mod tests {
 
     fn seeded_store() -> Arc<Store> {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().join("snap1");
+        let store = Store::new(tmp.path()).unwrap();
+        let dir = store.snapshot_path("snap1");
         let mut w = IndexWriter::create(&dir).unwrap();
         let root = w
             .push(NodeInput {
@@ -488,13 +489,6 @@ mod tests {
             started_at_ms: 0,
         })
         .unwrap();
-        let store = Store::new(tmp.path()).unwrap();
-        // Move the seeded snapshot into the store's snapshots dir.
-        let target = store.snapshot_path("snap1");
-        std::fs::create_dir_all(&target).unwrap();
-        for f in ["manifest.json", "nodes.bin", "names.bin", "subtree.bin"] {
-            std::fs::copy(dir.join(f), target.join(f)).unwrap();
-        }
         // Leak the tempdir so the store remains valid for the test body.
         std::mem::forget(tmp);
         Arc::new(store)
