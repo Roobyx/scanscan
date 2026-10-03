@@ -441,6 +441,16 @@ export function createApp({ config, core, scheduler, startedAt = Date.now() }: A
     }
   });
 
+  app.get("/api/v1/docker/locate", async (c) => {
+    try {
+      return c.json(
+        await core.call("docker.locate", { query: c.req.query("q") ?? "" }),
+      );
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
   app.get("/api/v1/docker/stats", async (c) => {
     try {
       return c.json(await core.call("docker.stats"));

@@ -9,7 +9,7 @@ pub mod rpc;
 pub mod scan;
 pub mod tree;
 
-pub use docker::{ContainerInfo, DockerStats, ImageInfo, MountInfo, MountKind, VolumeInfo};
+pub use docker::{ContainerInfo, DockerStats, ImageInfo, LocateMatch, MountInfo, MountKind, VolumeInfo};
 pub use rpc::{RpcError, RpcNotification, RpcRequest, RpcResponse};
 pub use scan::{ScanOptions, ScanProgress, ScanState, ScanSummary};
 pub use tree::{NodeChildren, NodeKind, NodeRecord, Tile, TilesResponse};
@@ -46,6 +46,7 @@ pub mod methods {
     pub const DOCKER_MOUNTS_FOR: &str = "docker.mountsFor";
     pub const DOCKER_IMAGES: &str = "docker.images";
     pub const DOCKER_VOLUMES: &str = "docker.volumes";
+    pub const DOCKER_LOCATE: &str = "docker.locate";
 
     pub const EXPORT_RUN: &str = "export.run";
     pub const CONFIG_GET: &str = "config.get";

@@ -3,6 +3,7 @@
     ContainerInfo,
     DockerStats,
     ImageInfo,
+    LocateMatch,
     MountInfo,
     VolumeInfo,
   } from "@scanscan/api-types";
@@ -12,6 +13,7 @@
     errorMessage,
     getDockerContainers,
     getDockerImages,
+    getDockerLocate,
     getDockerMounts,
     getDockerStats,
     getDockerVolumes,
@@ -33,6 +35,25 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let timer: ReturnType<typeof setInterval> | null = null;
+  let locateQuery = $state("");
+  let locateMatches = $state<LocateMatch[]>([]);
+  let locating = $state(false);
+
+  async function locate(): Promise<void> {
+    const query = locateQuery.trim();
+    if (query.length === 0) {
+      locateMatches = [];
+      return;
+    }
+    locating = true;
+    try {
+      locateMatches = await getDockerLocate(query);
+    } catch (cause) {
+      error = errorMessage(cause);
+    } finally {
+      locating = false;
+    }
+  }
 
   const sortedImages = $derived([...images].sort((a, b) => b.size - a.size));
   const sortedVolumes = $derived(
@@ -100,6 +121,42 @@
 </script>
 
 <div class="docker">
+  <section class="block">
+    <h3>Locate a path or id</h3>
+    <p class="muted small">
+      Paste a host path or an id fragment (e.g. an overlay layer id) to find the container/stack
+      that owns it.
+    </p>
+    <form
+      class="locate"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void locate();
+      }}
+    >
+      <input
+        type="text"
+        bind:value={locateQuery}
+        placeholder="ff50410b4133… or /mnt/…"
+        aria-label="Path or id"
+      />
+      <button type="submit" disabled={locating}>{locating ? "…" : "Locate"}</button>
+    </form>
+    {#if locateMatches.length > 0}
+      <ul class="matches">
+        {#each locateMatches as match (match.containerId + match.kind + match.path)}
+          <li>
+            <strong>{match.containerName}</strong>
+            <span class="muted small">{match.kind}</span>
+            <span class="mono" title={match.path}>{match.path}</span>
+          </li>
+        {/each}
+      </ul>
+    {:else if locateQuery.trim().length > 0 && !locating}
+      <p class="muted small">No container matches “{locateQuery}”.</p>
+    {/if}
+  </section>
+
   {#if error}
     <p class="state err" role="alert">{error}</p>
   {:else if loading && isEmpty}
@@ -513,5 +570,56 @@
 
   .state.err {
     color: var(--err);
+  }
+  .locate {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+  }
+
+  .locate input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+
+  .locate button {
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: #0b0e14;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .matches {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .matches li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+  }
+
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+    font-size: 0.72rem;
+    word-break: break-all;
   }
 </style>

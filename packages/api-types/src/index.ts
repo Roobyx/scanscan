@@ -132,6 +132,17 @@ export interface ContainerInfo {
   sizeRw?: number;
   sizeRootFs?: number;
   mounts: MountInfo[];
+  overlayUpper?: string;
+  overlayLower?: string;
+  overlayMerged?: string;
+}
+
+export interface LocateMatch {
+  containerId: string;
+  containerName: string;
+  image: string;
+  kind: string;
+  path: string;
 }
 
 export interface DockerStats {

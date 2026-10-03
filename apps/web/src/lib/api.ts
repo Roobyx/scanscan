@@ -6,7 +6,7 @@ import type {
   HierarchyNode,
   HistogramBucket,
   HostMountsResponse,
-  ImageInfo,
+  LocateMatch,
   MountInfo,
   NodeKind,
   NodeRecord,
@@ -346,6 +346,13 @@ export async function getDockerImages(): Promise<ImageInfo[]> {
 export async function getDockerVolumes(): Promise<VolumeInfo[]> {
   const body = await request<{ volumes: VolumeInfo[] }>("/docker/volumes");
   return body.volumes;
+}
+
+export async function getDockerLocate(query: string): Promise<LocateMatch[]> {
+  const body = await request<{ matches: LocateMatch[] }>(
+    `/docker/locate?q=${encodeURIComponent(query)}`,
+  );
+  return body.matches;
 }
 
 export async function getDockerMounts(scanId?: string): Promise<MountInfo[]> {

@@ -40,6 +40,24 @@ pub struct ContainerInfo {
     pub size_root_fs: Option<u64>,
     #[serde(default)]
     pub mounts: Vec<MountInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay_upper: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay_lower: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay_merged: Option<String>,
+}
+
+/// A container/stack that owns a given host path or id fragment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocateMatch {
+    pub container_id: String,
+    pub container_name: String,
+    pub image: String,
+    /// `mount` or `overlay-upper` / `overlay-lower` / `overlay-merged`.
+    pub kind: String,
+    pub path: String,
 }
 
 /// A single non-streaming Docker stats sample.

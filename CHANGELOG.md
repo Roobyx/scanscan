@@ -2,6 +2,14 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.10.0] - 2026-10-03
+
+### Added
+- Docker **locate**: paste a host path or an id fragment (e.g. an overlay2 layer id like
+  `ff50410b…`) into the Docker panel and it reports the container/stack that owns it. It matches
+  container mounts and each container's overlay (GraphDriver) upper/lower/merged directories.
+  API: `GET /api/v1/docker/locate?q=`.
+
 ## [1.9.3] - 2026-10-03
 
 ### Fixed

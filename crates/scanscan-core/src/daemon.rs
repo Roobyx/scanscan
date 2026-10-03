@@ -221,6 +221,10 @@ impl Daemon {
             methods::DOCKER_STATS => to_value(json!({ "containers": self.docker.stats().unwrap_or_default() })),
             methods::DOCKER_IMAGES => to_value(json!({ "images": self.docker.images().unwrap_or_default() })),
             methods::DOCKER_VOLUMES => to_value(json!({ "volumes": self.docker.volumes().unwrap_or_default() })),
+            methods::DOCKER_LOCATE => {
+                let p: LocateParam = params(req)?;
+                to_value(json!({ "matches": self.docker.locate(&p.query).unwrap_or_default() }))
+            }
             methods::DOCKER_MOUNTS_FOR => {
                 let p: IdParam = params(req)?;
                 let reader = self.open(&p.id)?;
@@ -341,6 +345,11 @@ struct DiffParam {
 struct GcParam {
     #[serde(default)]
     keep: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct LocateParam {
+    query: String,
 }
 
 #[derive(Deserialize)]
