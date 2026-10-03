@@ -2,6 +2,13 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.10.0] - 2026-10-03
+
+### Added
+- Parquet export: `GET /api/v1/scans/:id/export?format=parquet` writes the subtree as a Parquet
+  file (columns: id, parent, name, kind, sizeAlloc, sizeApparent, subtreeSize, mtimeMs) via
+  `@dsnp/parquetjs`.
+
 ## [1.9.0] - 2026-10-03
 
 ### Added
