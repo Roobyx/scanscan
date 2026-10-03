@@ -299,7 +299,7 @@ fn run_scan(
     match writer.finish(ManifestSeed {
         id: id.clone(),
         parent_id: None,
-        roots: options.roots.clone(),
+        roots: roots.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
         started_at_ms: started,
     }) {
         Ok(manifest) => {

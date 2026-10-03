@@ -270,13 +270,20 @@ impl Previous {
         }
         let mut dirs: std::collections::HashMap<String, (i64, u64, u32)> =
             std::collections::HashMap::new();
+        let roots = reader.manifest().roots.clone();
+        let mut root_index = 0usize;
         for root in 0..reader.len() {
             let is_root = reader
                 .record(root)
                 .map(|rec| rec.parent == NO_PARENT)
                 .unwrap_or(false);
             if is_root {
-                collect_dirs(&reader, &child_index, root, String::new(), &mut dirs);
+                let abs = roots
+                    .get(root_index)
+                    .cloned()
+                    .unwrap_or_else(|| reader.name(root).to_string());
+                collect_dirs(&reader, &child_index, root, abs, &mut dirs);
+                root_index += 1;
             }
         }
         Self { reader, dirs }
@@ -291,24 +298,19 @@ fn collect_dirs(
     reader: &IndexReader,
     index: &std::collections::HashMap<u32, Vec<u32>>,
     id: u32,
-    prefix: String,
+    abs_path: String,
     out: &mut std::collections::HashMap<String, (i64, u64, u32)>,
 ) {
-    let name = reader.name(id);
-    let path = if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}/{name}")
-    };
     if let Some(rec) = reader.record(id) {
         if rec.kind.is_dir() {
             let ino = reader.inode(id).map(|(ino, _)| ino).unwrap_or(0);
-            out.insert(path.clone(), (rec.mtime_ms, ino, id));
+            out.insert(abs_path.clone(), (rec.mtime_ms, ino, id));
         }
     }
     if let Some(children) = index.get(&id) {
         for child in children {
-            collect_dirs(reader, index, *child, path.clone(), out);
+            let name = reader.name(*child);
+            collect_dirs(reader, index, *child, format!("{abs_path}/{name}"), out);
         }
     }
 }
