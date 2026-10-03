@@ -128,6 +128,65 @@ impl DockerCollector {
         let body = http_get(&self.target, path)?;
         serde_json::from_slice(&body).map_err(CoreError::from)
     }
+
+    /// Containers enriched with their overlay (GraphDriver) layer directories.
+    pub fn containers_detailed(&self) -> Result<Vec<ContainerInfo>> {
+        let mut out = self.containers()?;
+        out.par_iter_mut().for_each(|container| {
+            if let Ok(inspect) = self.get(&format!("/containers/{}/json", container.id)) {
+                if let Some(data) = inspect.get("GraphDriver").and_then(|g| g.get("Data")) {
+                    container.overlay_upper = data
+                        .get("UpperDir")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    container.overlay_lower = data
+                        .get("LowerDir")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    container.overlay_merged = data
+                        .get("MergedDir")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+            }
+        });
+        Ok(out)
+    }
+
+    /// Find the container(s) that own a host path or id fragment.
+    pub fn locate(&self, query: &str) -> Result<Vec<LocateMatch>> {
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let containers = self.containers_detailed()?;
+        let mut out = Vec::new();
+        for container in &containers {
+            let mut push = |kind: &str, path: &str| {
+                if path.contains(query) {
+                    out.push(LocateMatch {
+                        container_id: container.id.clone(),
+                        container_name: container.name.clone(),
+                        image: container.image.clone(),
+                        kind: kind.to_string(),
+                        path: path.to_string(),
+                    });
+                }
+            };
+            for mount in &container.mounts {
+                push("mount", &mount.source);
+            }
+            if let Some(path) = &container.overlay_upper {
+                push("overlay-upper", path);
+            }
+            if let Some(path) = &container.overlay_lower {
+                push("overlay-lower", path);
+            }
+            if let Some(path) = &container.overlay_merged {
+                push("overlay-merged", path);
+            }
+        }
+        Ok(out)
+    }
 }
 
 fn parse_container(item: &Value) -> ContainerInfo {
@@ -188,65 +247,6 @@ fn parse_container(item: &Value) -> ContainerInfo {
         overlay_lower: None,
         overlay_merged: None,
     }
-}
-
-/// Containers enriched with their overlay (GraphDriver) layer directories.
-pub fn containers_detailed(&self) -> Result<Vec<ContainerInfo>> {
-    let mut out = self.containers()?;
-    out.par_iter_mut().for_each(|container| {
-        if let Ok(inspect) = self.get(&format!("/containers/{}/json", container.id)) {
-            if let Some(data) = inspect.get("GraphDriver").and_then(|g| g.get("Data")) {
-                container.overlay_upper = data
-                    .get("UpperDir")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                container.overlay_lower = data
-                    .get("LowerDir")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                container.overlay_merged = data
-                    .get("MergedDir")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-            }
-        }
-    });
-    Ok(out)
-}
-
-/// Find the container(s) that own a host path or id fragment.
-pub fn locate(&self, query: &str) -> Result<Vec<LocateMatch>> {
-    if query.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    let containers = self.containers_detailed()?;
-    let mut out = Vec::new();
-    for container in &containers {
-        let mut push = |kind: &str, path: &str| {
-            if path.contains(query) {
-                out.push(LocateMatch {
-                    container_id: container.id.clone(),
-                    container_name: container.name.clone(),
-                    image: container.image.clone(),
-                    kind: kind.to_string(),
-                    path: path.to_string(),
-                });
-            }
-        };
-        for mount in &container.mounts {
-            push("mount", &mount.source);
-        }
-        if let Some(path) = &container.overlay_upper {
-            push("overlay-upper", path);
-        }
-        if let Some(path) = &container.overlay_lower {
-            push("overlay-lower", path);
-        }
-        if let Some(path) = &container.overlay_merged {
-            push("overlay-merged", path);
-        }
-    }
-    Ok(out)
 }
 
 fn parse_image(item: &Value) -> ImageInfo {
