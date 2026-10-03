@@ -11,7 +11,7 @@ use scanscan_ipc::{ScanOptions, ScanProgress, ScanState, ScanSummary};
 
 use crate::error::{CoreError, Result};
 use crate::index::{now_ms, IndexReader, IndexWriter, Manifest, ManifestSeed};
-use crate::scanner::{canonical_root, platform_fs, scan, Progress};
+use crate::scanner::{canonical_root, platform_fs, scan, Previous, Progress};
 
 struct Job {
     summary: ScanSummary,
@@ -174,8 +174,18 @@ impl Store {
         let job_id = id.clone();
         let roots_for_thread = roots;
         let options_for_thread = options.clone();
+        let snapshots_dir = self.snapshots_dir.clone();
         thread::spawn(move || {
-            run_scan(jobs, job_id, snap, roots_for_thread, options_for_thread, started, cancel);
+            run_scan(
+                jobs,
+                job_id,
+                snap,
+                snapshots_dir,
+                roots_for_thread,
+                options_for_thread,
+                started,
+                cancel,
+            );
         });
 
         Ok(summary)
@@ -226,6 +236,7 @@ fn run_scan(
     jobs: Arc<Mutex<HashMap<String, Job>>>,
     id: String,
     snap: PathBuf,
+    snapshots_dir: PathBuf,
     roots: Vec<PathBuf>,
     options: ScanOptions,
     started: i64,
@@ -235,6 +246,14 @@ fn run_scan(
     let mut writer = match IndexWriter::create(&snap) {
         Ok(w) => w,
         Err(e) => return finish_failed(&jobs, &id, e.to_string()),
+    };
+
+    let previous = if options.incremental {
+        latest_completed(&snapshots_dir, &snap)
+            .and_then(|dir| IndexReader::open(&dir).ok())
+            .map(Previous::build)
+    } else {
+        None
     };
 
     let jobs_cb = jobs.clone();
@@ -258,7 +277,15 @@ fn run_scan(
         }
     };
 
-    let result = scan(&mut writer, &roots, &options, fs.as_ref(), &cancel, &mut on_progress);
+    let result = scan(
+        &mut writer,
+        &roots,
+        &options,
+        fs.as_ref(),
+        &cancel,
+        previous.as_ref(),
+        &mut on_progress,
+    );
     if let Err(e) = result {
         let _ = std::fs::remove_dir_all(&snap);
         let state = if cancel.load(Ordering::Relaxed) {
@@ -329,6 +356,31 @@ fn manifest_to_summary(m: &Manifest) -> ScanSummary {
         bytes_alloc: m.stats.bytes_alloc,
         errors: m.stats.errors,
     }
+}
+
+/// Newest completed snapshot directory other than `current`, for incremental reuse.
+fn latest_completed(snapshots_dir: &Path, current: &Path) -> Option<PathBuf> {
+    let mut best: Option<(i64, PathBuf)> = None;
+    for entry in std::fs::read_dir(snapshots_dir).ok()?.flatten() {
+        let dir = entry.path();
+        if dir == current {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(dir.join("manifest.json")) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_slice::<Manifest>(&bytes) else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .map(|(ms, _)| manifest.finished_at_ms > *ms)
+            .unwrap_or(true)
+        {
+            best = Some((manifest.finished_at_ms, dir));
+        }
+    }
+    best.map(|(_, dir)| dir)
 }
 
 fn new_id() -> String {

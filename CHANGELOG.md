@@ -2,6 +2,14 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.8.0] - 2026-10-03
+
+### Added
+- Incremental rescans (`--incremental` / `options.incremental`). Snapshots now carry an inode
+  column (`ino`+`dev` per node, format v2), and a rescan reuses any directory whose `(mtime, inode)`
+  is unchanged by copying its subtree from the previous snapshot instead of re-reading the
+  filesystem. Format v1 snapshots remain readable (the inode column is optional).
+
 ## [1.7.0] - 2026-10-02
 
 ### Added

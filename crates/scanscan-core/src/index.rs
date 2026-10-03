@@ -22,9 +22,11 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CoreError, Result};
 
 /// Bump on any layout change; readers reject unknown versions.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 /// Fixed node record size in bytes.
 pub const RECORD_SIZE: usize = 64;
+/// Bytes per node in the optional `inode.bin` column (`ino` + `dev`, both u64).
+pub const INODE_SIZE: usize = 16;
 /// Sentinel `parent` for top-level (root) nodes.
 pub const NO_PARENT: u32 = u32::MAX;
 
@@ -181,6 +183,9 @@ pub struct Manifest {
     pub extensions: Vec<String>,
     #[serde(default)]
     pub errors: Vec<ScanError>,
+    /// True when an `inode.bin` column (ino+dev per node) is present.
+    #[serde(default)]
+    pub has_inodes: bool,
 }
 
 /// Input for a single node handed to [`IndexWriter::push`].
@@ -196,6 +201,8 @@ pub struct NodeInput<'a> {
     pub uid: u32,
     pub gid: u32,
     pub mode: u16,
+    pub ino: u64,
+    pub dev: u64,
 }
 
 struct Frame {
@@ -210,6 +217,7 @@ pub struct IndexWriter {
     dir: PathBuf,
     nodes: BufWriter<File>,
     names: BufWriter<File>,
+    inodes: BufWriter<File>,
     names_len: u64,
     subtree: Vec<u32>,
     count: u32,
@@ -226,10 +234,12 @@ impl IndexWriter {
         std::fs::create_dir_all(dir)?;
         let nodes = File::create(dir.join("nodes.bin"))?;
         let names = File::create(dir.join("names.bin"))?;
+        let inodes = File::create(dir.join("inode.bin"))?;
         Ok(Self {
             dir: dir.to_path_buf(),
             nodes: BufWriter::with_capacity(1 << 20, nodes),
             names: BufWriter::with_capacity(1 << 20, names),
+            inodes: BufWriter::with_capacity(1 << 20, inodes),
             names_len: 0,
             subtree: Vec::new(),
             count: 0,
@@ -302,6 +312,11 @@ impl IndexWriter {
         };
         self.nodes.write_all(&rec.encode())?;
 
+        let mut inode_bytes = [0u8; INODE_SIZE];
+        inode_bytes[0..8].copy_from_slice(&node.ino.to_le_bytes());
+        inode_bytes[8..16].copy_from_slice(&node.dev.to_le_bytes());
+        self.inodes.write_all(&inode_bytes)?;
+
         self.subtree.push(0);
         self.count += 1;
 
@@ -349,6 +364,7 @@ impl IndexWriter {
 
         self.nodes.flush()?;
         self.names.flush()?;
+        self.inodes.flush()?;
 
         let mut subtree_file = BufWriter::new(File::create(self.dir.join("subtree.bin"))?);
         for size in &self.subtree {
@@ -368,6 +384,7 @@ impl IndexWriter {
             stats: self.stats,
             extensions: self.extensions,
             errors: self.errors,
+            has_inodes: true,
         };
 
         let manifest_path = self.dir.join("manifest.json");
@@ -393,15 +410,16 @@ pub struct IndexReader {
     nodes: Option<Mmap>,
     names: Option<Mmap>,
     subtree: Option<Mmap>,
+    inodes: Option<Mmap>,
 }
 
 impl IndexReader {
     pub fn open(dir: &Path) -> Result<Self> {
         let manifest_bytes = std::fs::read(dir.join("manifest.json"))?;
         let manifest: Manifest = serde_json::from_slice(&manifest_bytes)?;
-        if manifest.format_version != FORMAT_VERSION {
+        if manifest.format_version > FORMAT_VERSION {
             return Err(CoreError::Format(format!(
-                "snapshot format {} is not supported (expected {})",
+                "snapshot format {} is not supported (this build reads up to {})",
                 manifest.format_version, FORMAT_VERSION
             )));
         }
@@ -411,6 +429,7 @@ impl IndexReader {
             nodes: map_opt(&dir.join("nodes.bin"))?,
             names: map_opt(&dir.join("names.bin"))?,
             subtree: map_opt(&dir.join("subtree.bin"))?,
+            inodes: map_opt(&dir.join("inode.bin"))?,
         })
     }
 
@@ -486,6 +505,20 @@ impl IndexReader {
         start..end
     }
 
+    /// `(ino, dev)` for a node, when the snapshot carries an inode column.
+    pub fn inode(&self, id: u32) -> Option<(u64, u64)> {
+        let mm = self.inodes.as_ref()?;
+        let start = id as usize * INODE_SIZE;
+        if start + INODE_SIZE > mm.len() {
+            return None;
+        }
+        let mut ino = [0u8; 8];
+        let mut dev = [0u8; 8];
+        ino.copy_from_slice(&mm[start..start + 8]);
+        dev.copy_from_slice(&mm[start + 8..start + 16]);
+        Some((u64::from_le_bytes(ino), u64::from_le_bytes(dev)))
+    }
+
     /// Direct children of `id`, in id order.
     pub fn children(&self, id: u32) -> Vec<u32> {
         let range = self.subtree_range(id);
@@ -513,7 +546,12 @@ pub fn extension_of(name: &str) -> Option<String> {
 }
 
 fn map_opt(path: &Path) -> Result<Option<Mmap>> {
-    let file = OpenOptions::new().read(true).open(path)?;
+    let file = match OpenOptions::new().read(true).open(path) {
+        Ok(file) => file,
+        // Optional columns (e.g. inode.bin on older snapshots) may be absent.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
     if file.metadata()?.len() == 0 {
         return Ok(None);
     }
@@ -549,6 +587,8 @@ mod tests {
                 uid: 0,
                 gid: 0,
                 mode: 0o755,
+                ino: 0,
+                dev: 0,
             })
             .unwrap();
         let _f1 = w
@@ -564,6 +604,8 @@ mod tests {
                 uid: 0,
                 gid: 0,
                 mode: 0o644,
+                ino: 0,
+                dev: 0,
             })
             .unwrap();
         let _sub = w
@@ -579,6 +621,8 @@ mod tests {
                 uid: 0,
                 gid: 0,
                 mode: 0o755,
+                ino: 0,
+                dev: 0,
             })
             .unwrap();
         let _f2 = w
@@ -594,6 +638,8 @@ mod tests {
                 uid: 0,
                 gid: 0,
                 mode: 0o644,
+                ino: 0,
+                dev: 0,
             })
             .unwrap();
         w.finish(ManifestSeed {

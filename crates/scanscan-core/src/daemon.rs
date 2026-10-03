@@ -461,6 +461,8 @@ mod tests {
                 uid: 0,
                 gid: 0,
                 mode: 0,
+                ino: 0,
+                dev: 0,
             })
             .unwrap();
         w.push(NodeInput {

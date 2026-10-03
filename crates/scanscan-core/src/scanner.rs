@@ -19,7 +19,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use rayon::prelude::*;
 
 use crate::error::{CoreError, Result};
-use crate::index::{flags, IndexWriter, Kind, NodeInput, NO_PARENT};
+use crate::index::{flags, IndexReader, IndexWriter, Kind, NodeInput, NO_PARENT};
 use scanscan_ipc::ScanOptions;
 
 /// Metadata captured for a single directory entry.
@@ -223,6 +223,7 @@ pub fn scan(
     options: &ScanOptions,
     fs: &dyn Filesystem,
     cancel: &AtomicBool,
+    previous: Option<&Previous>,
     progress: &mut dyn FnMut(&Progress),
 ) -> Result<()> {
     let exclude = build_exclusions(options, roots)?;
@@ -235,6 +236,7 @@ pub fn scan(
         hardlinks: HashSet::new(),
         visited: HashSet::new(),
         cancel,
+        previous,
         progress,
         started,
         last_emit: Instant::now(),
@@ -248,6 +250,106 @@ pub fn scan(
     Ok(())
 }
 
+/// Reusable directory index from a previous snapshot, for `--incremental`.
+pub struct Previous {
+    reader: IndexReader,
+    dirs: std::collections::HashMap<String, (i64, u64, u32)>,
+}
+
+impl Previous {
+    /// Build a directory index: container path -> (mtime_ms, ino, node_id).
+    pub fn build(reader: IndexReader) -> Self {
+        let mut child_index: std::collections::HashMap<u32, Vec<u32>> =
+            std::collections::HashMap::new();
+        for id in 0..reader.len() {
+            if let Some(rec) = reader.record(id) {
+                if rec.parent != NO_PARENT {
+                    child_index.entry(rec.parent).or_default().push(id);
+                }
+            }
+        }
+        let mut dirs: std::collections::HashMap<String, (i64, u64, u32)> =
+            std::collections::HashMap::new();
+        for root in 0..reader.len() {
+            let is_root = reader
+                .record(root)
+                .map(|rec| rec.parent == NO_PARENT)
+                .unwrap_or(false);
+            if is_root {
+                collect_dirs(&reader, &child_index, root, String::new(), &mut dirs);
+            }
+        }
+        Self { reader, dirs }
+    }
+
+    pub fn reader(&self) -> &IndexReader {
+        &self.reader
+    }
+}
+
+fn collect_dirs(
+    reader: &IndexReader,
+    index: &std::collections::HashMap<u32, Vec<u32>>,
+    id: u32,
+    prefix: String,
+    out: &mut std::collections::HashMap<String, (i64, u64, u32)>,
+) {
+    let name = reader.name(id);
+    let path = if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    };
+    if let Some(rec) = reader.record(id) {
+        if rec.kind.is_dir() {
+            let ino = reader.inode(id).map(|(ino, _)| ino).unwrap_or(0);
+            out.insert(path.clone(), (rec.mtime_ms, ino, id));
+        }
+    }
+    if let Some(children) = index.get(&id) {
+        for child in children {
+            collect_dirs(reader, index, *child, path.clone(), out);
+        }
+    }
+}
+
+/// Re-emit an old snapshot's subtree into the new writer, remapping parent ids.
+fn copy_subtree(
+    writer: &mut IndexWriter,
+    old: &IndexReader,
+    old_root: u32,
+    new_root: u32,
+) -> Result<()> {
+    let size = old.subtree_size(old_root);
+    for old_id in (old_root + 1)..(old_root + size) {
+        let Some(rec) = old.record(old_id) else {
+            continue;
+        };
+        let parent_new = if rec.parent == old_root {
+            new_root
+        } else {
+            new_root + (rec.parent - old_root)
+        };
+        let (ino, dev) = old.inode(old_id).unwrap_or((0, 0));
+        writer.push(NodeInput {
+            parent: parent_new,
+            name: old.name(old_id),
+            kind: rec.kind,
+            flags: rec.flags,
+            children: rec.children,
+            size_app: rec.size_app,
+            size_alloc: rec.size_alloc,
+            mtime_ms: rec.mtime_ms,
+            uid: rec.uid,
+            gid: rec.gid,
+            mode: rec.mode,
+            ino,
+            dev,
+        })?;
+    }
+    Ok(())
+}
+
 struct Walker<'a> {
     fs: &'a dyn Filesystem,
     options: &'a ScanOptions,
@@ -256,6 +358,7 @@ struct Walker<'a> {
     hardlinks: HashSet<(u64, u64)>,
     visited: HashSet<(u64, u64)>,
     cancel: &'a AtomicBool,
+    previous: Option<&'a Previous>,
     progress: &'a mut dyn FnMut(&Progress),
     started: Instant,
     last_emit: Instant,
@@ -320,6 +423,8 @@ impl Walker<'_> {
                 uid: entry.uid,
                 gid: entry.gid,
                 mode: entry.mode,
+                ino: entry.ino,
+                dev: entry.dev,
             })?;
             self.tick(&entry.path);
             return Ok(());
@@ -364,9 +469,11 @@ impl Walker<'_> {
                         size_app: 0,
                         size_alloc: 0,
                         mtime_ms: entry.mtime_ms,
-                        uid: 0,
-                        gid: 0,
-                        mode: 0,
+                        uid: entry.uid,
+                        gid: entry.gid,
+                        mode: entry.mode,
+                        ino: entry.ino,
+                        dev: entry.dev,
                     })?;
                     self.tick(&entry.path);
                     return Ok(());
@@ -391,12 +498,48 @@ impl Walker<'_> {
             uid: entry.uid,
             gid: entry.gid,
             mode: entry.mode,
+            ino: entry.ino,
+            dev: entry.dev,
         })?;
         self.tick(&entry.path);
         Ok(())
     }
 
     fn emit_dir(&mut self, entry: EntryMeta, parent: u32, root_dev: u64, extra: u8) -> Result<()> {
+        if let Some(previous) = self.previous {
+            if entry.ino != 0 {
+                let key = entry.path.to_string_lossy();
+                if let Some(&(mtime, ino, old_id)) = previous.dirs.get(key.as_ref()) {
+                    if mtime == entry.mtime_ms && ino == entry.ino {
+                        // Directory unchanged: reuse its whole subtree.
+                        let old_children = previous
+                            .reader
+                            .record(old_id)
+                            .map(|rec| rec.children)
+                            .unwrap_or(0);
+                        let new_id = self.writer.push(NodeInput {
+                            parent,
+                            name: &entry.name,
+                            kind: Kind::Directory,
+                            flags: extra,
+                            children: old_children,
+                            size_app: 0,
+                            size_alloc: 0,
+                            mtime_ms: entry.mtime_ms,
+                            uid: entry.uid,
+                            gid: entry.gid,
+                            mode: entry.mode,
+                            ino: entry.ino,
+                            dev: entry.dev,
+                        })?;
+                        copy_subtree(self.writer, &previous.reader, old_id, new_id)?;
+                        self.tick(&entry.path);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         let entries = match self.fs.read_dir(&entry.path) {
             Ok(e) => e,
             Err(e) => {
@@ -437,6 +580,8 @@ impl Walker<'_> {
             uid: entry.uid,
             gid: entry.gid,
             mode: entry.mode,
+            ino: entry.ino,
+            dev: entry.dev,
         })?;
         self.tick(&entry.path);
 
@@ -473,6 +618,8 @@ impl Walker<'_> {
             uid: entry.uid,
             gid: entry.gid,
             mode: entry.mode,
+            ino: entry.ino,
+            dev: entry.dev,
         })?;
         self.tick(&entry.path);
         Ok(())
@@ -510,6 +657,7 @@ mod tests {
             &options,
             &fs,
             &AtomicBool::new(false),
+            None,
             &mut progress,
         )
         .unwrap();
