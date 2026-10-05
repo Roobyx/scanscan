@@ -2,6 +2,16 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.11.2] - 2026-10-05
+
+### Fixed
+- **Duplicates returned no response on very large snapshots.** It allocated a `Vec` per
+  file (millions of allocations); it now counts matches first and only collects node ids
+  for keys that actually repeat.
+- **Slow core queries were cut off mid-request.** The Bun server's default 10s idle
+  timeout closed long-running requests (Duplicates, Diff) before the response was written;
+  it is now 120s.
+
 ## [1.11.1] - 2026-10-05
 
 ### Fixed

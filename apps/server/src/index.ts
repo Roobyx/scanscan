@@ -120,5 +120,9 @@ console.log(
 export default {
   port: config.port,
   hostname: config.host,
+  // Some core queries (diff, duplicates) legitimately take several seconds on
+  // large snapshots; the default 10s idle timeout closed those connections
+  // before the response was written.
+  idleTimeout: 120,
   fetch: app.fetch,
 };

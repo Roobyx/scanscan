@@ -581,9 +581,10 @@ impl<'a> QueryEngine<'a> {
     /// Groups of metadata-identical files (name+size, optionally +mtime).
     pub fn duplicates(&self, scope: u32, mode: &str, limit: usize) -> Vec<DupGroup> {
         let use_mtime = mode.contains("mtime");
-        // Key on borrowed names (stable in the reader's mmap) so a multi-million
-        // node scan does not allocate a `String` per file.
-        let mut map: std::collections::HashMap<(&str, u64, i64), Vec<u32>> =
+        // Pass 1: count occurrences per (name, size[, mtime]). Keying on borrowed
+        // names (stable in the reader's mmap) avoids a String per file, and
+        // counting first avoids a Vec per file (most files are unique).
+        let mut counts: std::collections::HashMap<(&str, u64, i64), u32> =
             std::collections::HashMap::new();
         for id in self.reader.subtree_range(scope) {
             let Some(rec) = self.reader.record(id) else {
@@ -597,29 +598,50 @@ impl<'a> QueryEngine<'a> {
                 rec.size_alloc,
                 if use_mtime { rec.mtime_ms } else { 0 },
             );
-            map.entry(key).or_default().push(id);
+            *counts.entry(key).or_insert(0) += 1;
         }
 
-        let mut groups: Vec<DupGroup> = map
-            .into_iter()
-            .filter(|(_, ids)| ids.len() > 1)
-            .map(|((name, size, _), ids)| {
-                let count = ids.len() as u64;
-                let items: Vec<NodeRecord> = ids
-                    .iter()
-                    .take(50)
-                    .filter_map(|id| self.node(*id))
-                    .map(|view| view.to_record())
-                    .collect();
-                DupGroup {
-                    key: format!("{name} ({size} B)"),
-                    count,
-                    size,
-                    wasted: size.saturating_mul(count.saturating_sub(1)),
-                    items,
+        // Only keys seen more than once matter; index them for pass 2.
+        let mut index: std::collections::HashMap<(&str, u64, i64), usize> =
+            std::collections::HashMap::new();
+        let mut groups: Vec<DupGroup> = Vec::new();
+        for (&key, &count) in &counts {
+            if count > 1 {
+                index.insert(key, groups.len());
+                groups.push(DupGroup {
+                    key: format!("{} ({} B)", key.0, key.1),
+                    count: count as u64,
+                    size: key.1,
+                    wasted: key.1.saturating_mul((count as u64).saturating_sub(1)),
+                    items: Vec::new(),
+                });
+            }
+        }
+
+        // Pass 2: collect up to 50 example nodes per duplicate group.
+        if !groups.is_empty() {
+            for id in self.reader.subtree_range(scope) {
+                let Some(rec) = self.reader.record(id) else {
+                    continue;
+                };
+                if rec.kind.is_dir() || rec.size_alloc == 0 {
+                    continue;
                 }
-            })
-            .collect();
+                let key = (
+                    self.reader.name(id),
+                    rec.size_alloc,
+                    if use_mtime { rec.mtime_ms } else { 0 },
+                );
+                if let Some(&gi) = index.get(&key) {
+                    if groups[gi].items.len() < 50 {
+                        if let Some(view) = self.node(id) {
+                            groups[gi].items.push(view.to_record());
+                        }
+                    }
+                }
+            }
+        }
+
         groups.sort_by(|a, b| b.wasted.cmp(&a.wasted));
         groups.truncate(limit.max(1));
         groups
