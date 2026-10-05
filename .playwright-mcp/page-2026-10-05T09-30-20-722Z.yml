@@ -1,0 +1,40 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - img "NetBird" [ref=e5]
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]:
+          - heading "Welcome" [level=1] [ref=e9]
+          - paragraph [ref=e10]: Sign in to your account
+        - generic [ref=e11]:
+          - group [ref=e12]:
+            - textbox "name@company.com" [active] [ref=e13]
+          - group:
+            - textbox "Enter your password"
+          - group:
+            - textbox "Enter your password"
+          - group [ref=e14]:
+            - button "Continue" [ref=e15] [cursor=pointer]
+          - group [ref=e17]:
+            - generic [ref=e18]:
+              - text: Don't have an account?
+              - button "Sign up" [ref=e19] [cursor=pointer]
+        - group [ref=e20]:
+          - generic [ref=e21]: OR
+        - group [ref=e24]:
+          - generic [ref=e25]:
+            - button "Continue with Google" [ref=e26] [cursor=pointer]
+            - button "Continue with GitHub" [ref=e30] [cursor=pointer]
+            - button "Continue with Microsoft" [ref=e34] [cursor=pointer]
+            - button "Continue with Entra ID" [ref=e38] [cursor=pointer]
+            - button "Continue with Okta" [ref=e42] [cursor=pointer]
+            - button "Continue with JumpCloud" [ref=e46] [cursor=pointer]
+      - paragraph [ref=e50]:
+        - text: By signing up, you acknowledge that you have read, understood, and agree to NetBird's
+        - link "Terms of Service" [ref=e51] [cursor=pointer]:
+          - /url: https://netbird.io/terms
+        - text: and
+        - link "Privacy Policy" [ref=e52] [cursor=pointer]:
+          - /url: https://netbird.io/privacy
+        - text: .
+  - iframe

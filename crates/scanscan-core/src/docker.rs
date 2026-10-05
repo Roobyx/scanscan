@@ -12,6 +12,11 @@ use scanscan_ipc::{ContainerInfo, DockerStats, ImageInfo, LocateMatch, MountInfo
 
 use crate::error::{CoreError, Result};
 
+/// Read timeout for Docker Engine API calls. Generous because some endpoints
+/// (e.g. `?size=1` on the container list) make the daemon compute on-disk
+/// sizes and can take many seconds on a busy host.
+const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Availability of the Docker integration.
 #[derive(Debug, Clone, Serialize)]
 pub struct DockerStatus {
@@ -62,23 +67,24 @@ impl DockerCollector {
         }
     }
 
-    /// Container list with sizes and mounts.
+    /// Container list with writable/rootfs sizes. Docker computes those on
+    /// request, which is slow on a busy host; prefer [`Self::containers_raw`]
+    /// when sizes are not needed.
     pub fn containers(&self) -> Result<Vec<ContainerInfo>> {
         let value = self.get("/containers/json?size=1&all=1")?;
-        let array = value
-            .as_array()
-            .ok_or_else(|| CoreError::Scan("unexpected docker response".into()))?;
-        let mut out = Vec::with_capacity(array.len());
-        for item in array {
-            out.push(parse_container(item));
-        }
-        Ok(out)
+        parse_containers(&value)
+    }
+
+    /// Container list without on-disk size computation (fast; sizes stay `None`).
+    pub fn containers_raw(&self) -> Result<Vec<ContainerInfo>> {
+        let value = self.get("/containers/json?all=1")?;
+        parse_containers(&value)
     }
 
     /// Flattened mounts across all containers.
     pub fn mounts(&self) -> Result<Vec<MountInfo>> {
         let mut out = Vec::new();
-        for container in self.containers()? {
+        for container in self.containers_raw()? {
             out.extend(container.mounts);
         }
         Ok(out)
@@ -141,7 +147,7 @@ impl DockerCollector {
 
     /// Containers enriched with their overlay (GraphDriver) layer directories.
     pub fn containers_detailed(&self) -> Result<Vec<ContainerInfo>> {
-        let mut out = self.containers()?;
+        let mut out = self.containers_raw()?;
         out.par_iter_mut().for_each(|container| {
             if let Ok(inspect) = self.get(&format!("/containers/{}/json", container.id)) {
                 if let Some(data) = inspect.get("GraphDriver").and_then(|g| g.get("Data")) {
@@ -197,6 +203,13 @@ impl DockerCollector {
         }
         Ok(out)
     }
+}
+
+fn parse_containers(value: &Value) -> Result<Vec<ContainerInfo>> {
+    let array = value
+        .as_array()
+        .ok_or_else(|| CoreError::Scan("unexpected docker response".into()))?;
+    Ok(array.iter().map(parse_container).collect())
 }
 
 fn parse_container(item: &Value) -> ContainerInfo {
@@ -436,7 +449,7 @@ fn http_get(target: &str, path: &str) -> Result<Vec<u8>> {
         .or_else(|| target.strip_prefix("http://"))
     {
         let stream = std::net::TcpStream::connect(addr)?;
-        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        let _ = stream.set_read_timeout(Some(HTTP_TIMEOUT));
         return http_request(stream, path);
     }
     #[cfg(unix)]
@@ -444,7 +457,7 @@ fn http_get(target: &str, path: &str) -> Result<Vec<u8>> {
         use std::os::unix::net::UnixStream;
         let path_only = target.strip_prefix("unix://").unwrap_or(target);
         let stream = UnixStream::connect(path_only)?;
-        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        let _ = stream.set_read_timeout(Some(HTTP_TIMEOUT));
         http_request(stream, path)
     }
     #[cfg(not(unix))]

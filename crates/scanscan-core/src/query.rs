@@ -581,7 +581,9 @@ impl<'a> QueryEngine<'a> {
     /// Groups of metadata-identical files (name+size, optionally +mtime).
     pub fn duplicates(&self, scope: u32, mode: &str, limit: usize) -> Vec<DupGroup> {
         let use_mtime = mode.contains("mtime");
-        let mut map: std::collections::HashMap<(String, u64, i64), Vec<u32>> =
+        // Key on borrowed names (stable in the reader's mmap) so a multi-million
+        // node scan does not allocate a `String` per file.
+        let mut map: std::collections::HashMap<(&str, u64, i64), Vec<u32>> =
             std::collections::HashMap::new();
         for id in self.reader.subtree_range(scope) {
             let Some(rec) = self.reader.record(id) else {
@@ -590,8 +592,11 @@ impl<'a> QueryEngine<'a> {
             if rec.kind.is_dir() || rec.size_alloc == 0 {
                 continue;
             }
-            let name = self.reader.name(id).to_string();
-            let key = (name, rec.size_alloc, if use_mtime { rec.mtime_ms } else { 0 });
+            let key = (
+                self.reader.name(id),
+                rec.size_alloc,
+                if use_mtime { rec.mtime_ms } else { 0 },
+            );
             map.entry(key).or_default().push(id);
         }
 
@@ -809,45 +814,51 @@ pub fn diff(a: &IndexReader, b: &IndexReader) -> DiffResult {
     }
 }
 
+/// File path -> allocated bytes, built in a single pre-order pass.
+///
+/// Nodes are contiguous pre-order, so one ancestor stack reconstructs each
+/// path in O(path length). Avoids `IndexReader::children`, which scans a whole
+/// subtree per directory and made this O(n·depth) on large snapshots.
 fn path_sizes(reader: &IndexReader) -> std::collections::HashMap<String, u64> {
     let mut map = std::collections::HashMap::new();
-    for root in 0..reader.len() {
-        let is_root = reader
-            .record(root)
-            .map(|r| r.parent == crate::index::NO_PARENT)
-            .unwrap_or(false);
-        if is_root {
-            collect_paths(reader, root, "", &mut map);
+    // (exclusive subtree end, parent path length)
+    let mut stack: Vec<(u32, usize)> = Vec::new();
+    let mut path = String::new();
+    for id in 0..reader.len() {
+        if map.len() >= PATH_MAP_CAP {
+            break;
         }
-    }
-    map
-}
-
-fn collect_paths(
-    reader: &IndexReader,
-    id: u32,
-    prefix: &str,
-    map: &mut std::collections::HashMap<String, u64>,
-) {
-    if map.len() >= PATH_MAP_CAP {
-        return;
-    }
-    let name = reader.name(id);
-    let path = if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}/{name}")
-    };
-    if let Some(rec) = reader.record(id) {
+        while let Some(&(end, parent_len)) = stack.last() {
+            if id >= end {
+                stack.pop();
+                path.truncate(parent_len);
+            } else {
+                break;
+            }
+        }
+        let Some(rec) = reader.record(id) else {
+            continue;
+        };
+        let name = reader.name(id);
+        let parent_len = path.len();
+        if rec.parent == crate::index::NO_PARENT {
+            path.clear();
+            path.push_str(name);
+        } else {
+            path.push('/');
+            path.push_str(name);
+        }
         if !rec.kind.is_dir() {
             map.insert(path.clone(), rec.size_alloc);
         }
-    }
-    if reader.subtree_size(id) > 1 {
-        for child in reader.children(id) {
-            collect_paths(reader, child, &path, map);
+        let size = reader.subtree_size(id);
+        if size > 1 {
+            stack.push((id + size, parent_len));
+        } else {
+            path.truncate(parent_len);
         }
     }
+    map
 }
 
 fn kind_name(kind: Kind) -> &'static str {
@@ -1186,5 +1197,29 @@ mod tests {
         assert_eq!(items[0].name, "big");
         assert_eq!(items[0].size_alloc, 3_000_000);
         assert_eq!(items[1].name, "small.txt");
+    }
+
+    #[test]
+    fn path_sizes_maps_relative_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reader = build_reader(&tmp.path().join("snap"));
+        let sizes = path_sizes(&reader);
+        assert_eq!(sizes.len(), 3);
+        assert_eq!(sizes.get("root/big/a.bin"), Some(&1_000_000));
+        assert_eq!(sizes.get("root/big/b.bin"), Some(&2_000_000));
+        assert_eq!(sizes.get("root/small.txt"), Some(&1_000));
+    }
+
+    #[test]
+    fn diff_of_identical_snapshots_is_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = build_reader(&tmp.path().join("a"));
+        let b = build_reader(&tmp.path().join("b"));
+        let result = diff(&a, &b);
+        assert!(result.grown.is_empty());
+        assert!(result.shrunk.is_empty());
+        assert!(result.added.is_empty());
+        assert!(result.removed.is_empty());
+        assert_eq!(result.totals.delta, 0);
     }
 }

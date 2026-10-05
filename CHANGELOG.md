@@ -2,6 +2,19 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.11.1] - 2026-10-05
+
+### Fixed
+- **Overlay2 labels never appeared.** The core's Docker HTTP client used a 5s read timeout,
+  which `GET /containers/json?size=1` exceeds on a busy host (`os error 11`), so the
+  container list came back empty and no labels were attached. The timeout is now 30s, and
+  label/mount/locate paths use a size-free container list; the Docker panel falls back to
+  that list when sizing is slow.
+- **Duplicates and Diff returned 502 on large snapshots.** `diff` rebuilt file paths with
+  `IndexReader::children` for every directory, which is O(n·depth); it now reconstructs
+  paths in a single pre-order pass. `duplicates` keys on borrowed names instead of
+  allocating a `String` per file.
+
 ## [1.11.0] - 2026-10-05
 
 ### Added

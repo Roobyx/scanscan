@@ -212,7 +212,16 @@ impl Daemon {
                 let records: Vec<_> = items.iter().map(|v| v.to_record()).collect();
                 to_value(json!({ "items": records }))
             }
-            methods::DOCKER_CONTAINERS => to_value(json!({ "containers": self.docker.containers().unwrap_or_default() })),
+            methods::DOCKER_CONTAINERS => {
+                // Prefer sizes, but fall back to the size-free list so a slow
+                // size computation cannot empty the whole panel.
+                let containers = self
+                    .docker
+                    .containers()
+                    .or_else(|_| self.docker.containers_raw())
+                    .unwrap_or_default();
+                to_value(json!({ "containers": containers }))
+            }
             methods::DOCKER_MOUNTS => to_value(json!({ "mounts": self.docker.mounts().unwrap_or_default() })),
             methods::DOCKER_STATS => to_value(json!({ "containers": self.docker.stats().unwrap_or_default() })),
             methods::DOCKER_IMAGES => to_value(json!({ "images": self.docker.images().unwrap_or_default() })),
