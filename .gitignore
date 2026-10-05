@@ -24,3 +24,4 @@ Thumbs.db
 
 # Agent/editor state (not source)
 .kilo/
+.playwright-mcp/
