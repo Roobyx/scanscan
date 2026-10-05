@@ -28,13 +28,10 @@ pub struct Daemon {
 
 impl Daemon {
     pub fn new(store: Arc<Store>, config: Config) -> Self {
-        let target = std::env::var("SCANSCAN_DOCKER_SOCKET")
-            .or_else(|_| std::env::var("DOCKER_HOST"))
-            .unwrap_or_else(|_| "/var/run/docker.sock".to_string());
         Self {
             store,
             config,
-            docker: DockerCollector::new(target),
+            docker: DockerCollector::from_env(),
         }
     }
 
@@ -61,8 +58,7 @@ impl Daemon {
                 "docker_enabled": self.config.docker_enabled,
             })),
             methods::HOST_MOUNTS => {
-                let host_root = std::env::var("SCANSCAN_HOST_ROOT")
-                    .unwrap_or_else(|_| "/host".to_string());
+                let host_root = crate::docker::host_root();
                 to_value(json!({
                     "hostRoot": host_root,
                     "mounts": crate::host::read_mounts(std::path::Path::new(&host_root)),
@@ -228,8 +224,7 @@ impl Daemon {
             methods::DOCKER_MOUNTS_FOR => {
                 let p: IdParam = params(req)?;
                 let reader = self.open(&p.id)?;
-                let host_root = std::env::var("SCANSCAN_HOST_ROOT")
-                    .unwrap_or_else(|_| "/host".to_string());
+                let host_root = crate::docker::host_root();
                 let mounts = crate::query::correlate_mounts(
                     &reader,
                     self.docker.mounts().unwrap_or_default(),

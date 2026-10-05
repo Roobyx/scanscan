@@ -6,6 +6,7 @@ import type {
   HierarchyNode,
   HistogramBucket,
   HostMountsResponse,
+  ImageInfo,
   LocateMatch,
   MountInfo,
   NodeKind,

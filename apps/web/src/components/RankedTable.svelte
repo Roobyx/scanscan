@@ -70,6 +70,12 @@
     onselect(node);
   }
 
+  /** Kind plus any Docker label / flags, for the Kind column. */
+  function kindLabel(node: NodeRecord): string {
+    const tag = node.label ? ` · ${node.label}` : node.dockerMount ? " · docker" : "";
+    return `${node.kind}${tag}${node.error ? " · error" : ""}`;
+  }
+
   function handleRowKeydown(event: KeyboardEvent, node: NodeRecord): void {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -126,9 +132,7 @@
           <td class="num">{formatBytes(node.sizeAlloc)}</td>
           <td class="num">{formatBytes(node.sizeApparent)}</td>
           <td class="num">{node.kind === "directory" ? node.children.toLocaleString() : "—"}</td>
-          <td class="kind">
-            {node.kind}{node.dockerMount ? " · docker" : ""}{node.error ? " · error" : ""}
-          </td>
+          <td class="kind" title={node.label ?? undefined}>{kindLabel(node)}</td>
         </tr>
       {/each}
       {#if virtual && padBottom > 0}

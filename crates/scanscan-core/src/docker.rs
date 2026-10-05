@@ -22,6 +22,7 @@ pub struct DockerStatus {
 }
 
 /// Read-only collector bound to a Docker endpoint (`/path`, `unix://…` or `tcp://host:port`).
+#[derive(Clone)]
 pub struct DockerCollector {
     target: String,
 }
@@ -31,6 +32,15 @@ impl DockerCollector {
         Self {
             target: target.into(),
         }
+    }
+
+    /// Build from `SCANSCAN_DOCKER_SOCKET` / `DOCKER_HOST`, defaulting to the
+    /// standard unix socket. Single source of the endpoint resolution.
+    pub fn from_env() -> Self {
+        let target = std::env::var("SCANSCAN_DOCKER_SOCKET")
+            .or_else(|_| std::env::var("DOCKER_HOST"))
+            .unwrap_or_else(|_| "/var/run/docker.sock".to_string());
+        Self::new(target)
     }
 
     pub fn target(&self) -> &str {
@@ -204,6 +214,17 @@ fn parse_container(item: &Value) -> ContainerInfo {
     let size_rw = item.get("SizeRw").and_then(Value::as_u64);
     let size_root_fs = item.get("SizeRootFs").and_then(Value::as_u64);
 
+    let labels = item.get("Labels").and_then(Value::as_object);
+    let compose_label = |key: &str| {
+        labels
+            .and_then(|l| l.get(key))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let compose_project = compose_label("com.docker.compose.project");
+    let compose_service = compose_label("com.docker.compose.service");
+
     let mounts = item
         .get("Mounts")
         .and_then(Value::as_array)
@@ -246,7 +267,79 @@ fn parse_container(item: &Value) -> ContainerInfo {
         overlay_upper: None,
         overlay_lower: None,
         overlay_merged: None,
+        compose_project,
+        compose_service,
     }
+}
+
+/// Host root that scanned host paths are mounted under (default `/host`).
+/// Shared by the daemon's mount correlation and the scanner's label mapping.
+pub fn host_root() -> String {
+    std::env::var("SCANSCAN_HOST_ROOT").unwrap_or_else(|_| "/host".to_string())
+}
+
+/// Map host overlay2 layer directories to a human label naming the container,
+/// image and compose stack/service that own them.
+///
+/// `UpperDir` (the writable layer) is owned by exactly one container. `LowerDir`
+/// is a colon-separated list of shared image layers, so a directory referenced
+/// by several containers is labelled `shared by N containers` instead.
+pub fn overlay_labels(containers: &[ContainerInfo], host_root: &str) -> std::collections::HashMap<String, String> {
+    let mut owners: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    for (idx, container) in containers.iter().enumerate() {
+        if let Some(upper) = &container.overlay_upper {
+            if let Some(dir) = layer_dir(upper) {
+                owners.entry(dir).or_default().push(idx);
+            }
+        }
+        if let Some(lower) = &container.overlay_lower {
+            for part in lower.split(':') {
+                if let Some(dir) = layer_dir(part) {
+                    owners.entry(dir).or_default().push(idx);
+                }
+            }
+        }
+    }
+
+    let root = host_root.trim_end_matches('/');
+    let mut out = std::collections::HashMap::new();
+    for (dir, mut idxs) in owners {
+        idxs.sort_unstable();
+        idxs.dedup();
+        let label = if idxs.len() == 1 {
+            container_label(&containers[idxs[0]])
+        } else {
+            format!("shared by {} containers", idxs.len())
+        };
+        out.insert(format!("{root}{dir}"), label);
+    }
+    out
+}
+
+/// `/var/lib/docker/overlay2/<id>/diff` -> `/var/lib/docker/overlay2/<id>`.
+fn layer_dir(path: &str) -> Option<String> {
+    let trimmed = path.trim_end_matches('/');
+    let dir = trimmed.strip_suffix("/diff").unwrap_or(trimmed);
+    if dir.is_empty() {
+        None
+    } else {
+        Some(dir.to_string())
+    }
+}
+
+fn container_label(container: &ContainerInfo) -> String {
+    let image = container.image.split('@').next().unwrap_or(container.image.as_str());
+    let mut label = if image.is_empty() {
+        container.name.clone()
+    } else {
+        format!("{} ({image})", container.name)
+    };
+    match (&container.compose_project, &container.compose_service) {
+        (Some(project), Some(service)) => label.push_str(&format!(" · {project}/{service}")),
+        (Some(project), None) => label.push_str(&format!(" · {project}")),
+        _ => {}
+    }
+    label
 }
 
 fn parse_image(item: &Value) -> ImageInfo {
@@ -382,6 +475,77 @@ fn http_request<S: std::io::Read + std::io::Write>(mut stream: S, path: &str) ->
         decode_chunked(body)
     } else {
         Ok(body.to_vec())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn container(name: &str, image: &str, upper: &str, lower: &str) -> ContainerInfo {
+        ContainerInfo {
+            id: format!("id-{name}"),
+            name: name.into(),
+            image: image.into(),
+            state: "running".into(),
+            size_rw: None,
+            size_root_fs: None,
+            mounts: Vec::new(),
+            overlay_upper: Some(upper.into()),
+            overlay_lower: Some(lower.into()),
+            overlay_merged: None,
+            compose_project: Some("myapp".into()),
+            compose_service: Some(name.into()),
+        }
+    }
+
+    #[test]
+    fn overlay_labels_name_owner_and_stack() {
+        let containers = vec![
+            container(
+                "web",
+                "nginx:latest",
+                "/var/lib/docker/overlay2/aaa/diff",
+                "/var/lib/docker/overlay2/base1/diff:/var/lib/docker/overlay2/base2/diff",
+            ),
+            container(
+                "db",
+                "postgres@sha256:deadbeef",
+                "/var/lib/docker/overlay2/bbb/diff",
+                "/var/lib/docker/overlay2/base1/diff:/var/lib/docker/overlay2/base3/diff",
+            ),
+        ];
+        let map = overlay_labels(&containers, "/host");
+
+        assert_eq!(
+            map.get("/host/var/lib/docker/overlay2/aaa").map(String::as_str),
+            Some("web (nginx:latest) · myapp/web")
+        );
+        assert_eq!(
+            map.get("/host/var/lib/docker/overlay2/bbb").map(String::as_str),
+            Some("db (postgres) · myapp/db")
+        );
+        // base1 is shared by both containers.
+        assert_eq!(
+            map.get("/host/var/lib/docker/overlay2/base1").map(String::as_str),
+            Some("shared by 2 containers")
+        );
+        assert_eq!(
+            map.get("/host/var/lib/docker/overlay2/base2").map(String::as_str),
+            Some("web (nginx:latest) · myapp/web")
+        );
+    }
+
+    #[test]
+    fn overlay_labels_without_compose_and_root_slash() {
+        let mut c = container("web", "nginx", "/var/lib/docker/overlay2/aaa/diff", "");
+        c.compose_project = None;
+        c.compose_service = None;
+        let map = overlay_labels(&[c], "/");
+        assert_eq!(
+            map.get("/var/lib/docker/overlay2/aaa").map(String::as_str),
+            Some("web (nginx)")
+        );
     }
 }
 

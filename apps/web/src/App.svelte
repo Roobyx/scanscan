@@ -256,7 +256,7 @@
     loading = true;
     error = null;
     try {
-      const response = await getTiles(scanId, { scope, depth: 2, w: width, h: height, color });
+      const response = await getTiles(scanId, { scope, depth: 1, w: width, h: height, color });
       if (seq !== tilesSeq) return;
       tiles = response.tiles;
       truncated = response.truncated;
@@ -339,7 +339,7 @@
     const scanId = selectedId;
     if (!scanId) return;
     try {
-      const response = await getChildren(scanId, tile.node, { limit: 1 });
+      const response = await getChildren(scanId, tile.node, { limit: 1, sort: "name" });
       if (response.total === 0) return;
       pushScope(tile.node, tile.name);
     } catch (cause) {
@@ -362,7 +362,7 @@
     const scanId = selectedId;
     if (!scanId) return;
     try {
-      const response = await getChildren(scanId, node.id, { limit: 1 });
+      const response = await getChildren(scanId, node.id, { limit: 1, sort: "name" });
       if (response.total === 0) return;
       pushScope(node.id, node.name);
     } catch (cause) {

@@ -56,7 +56,17 @@ GET  /api/v1/docker/containers
 GET  /api/v1/docker/mounts
 GET  /api/v1/docker/stats
 GET  /api/v1/docker/status
+GET  /api/v1/docker/locate?q=          # find the container owning a path / overlay2 id
 ```
+
+## Node labels
+
+When Docker is reachable at scan time, directories under `/var/lib/docker/overlay2/<id>`
+carry a `label` naming the owning container, image and compose stack/service, e.g.
+`web (nginx:latest) · myapp/web`. Layers shared by several containers read
+`shared by N containers`. The label is present on `NodeRecord.label` and `Tile.label`
+(omitted when absent) and is read-only metadata; it never affects sizes. Snapshots written
+without Docker simply have no labels.
 
 ## Snapshots & diffs
 

@@ -66,6 +66,8 @@ pub struct NodeView {
     pub subtree_size: u32,
     pub children: u32,
     pub ext: String,
+    /// Optional display label (e.g. the Docker container owning an overlay2 layer).
+    pub label: String,
 }
 
 impl NodeView {
@@ -82,8 +84,18 @@ impl NodeView {
             children: self.children,
             has_children: self.children > 0,
             docker_mount: self.flags & flags::DOCKER_MOUNT != 0,
+            label: opt_label(&self.label),
             error: self.flags & flags::ERROR != 0,
         }
+    }
+}
+
+/// Map the empty label sentinel to `None` for the wire (0 = "no label").
+fn opt_label(label: &str) -> Option<String> {
+    if label.is_empty() {
+        None
+    } else {
+        Some(label.to_string())
     }
 }
 
@@ -141,6 +153,7 @@ impl<'a> QueryEngine<'a> {
             subtree_size: self.reader.subtree_size(id),
             children: rec.children,
             ext: self.reader.ext(id).to_string(),
+            label: self.reader.label_of(rec.label_id).to_string(),
         })
     }
 
@@ -166,11 +179,22 @@ impl<'a> QueryEngine<'a> {
             .collect();
 
         match sort {
-            SortBy::Size => views.sort_by(|a, b| {
-                b.size_alloc
-                    .cmp(&a.size_alloc)
-                    .then_with(|| a.name.cmp(&b.name))
-            }),
+            SortBy::Size => {
+                // A directory carries no size of its own: rank it by the bytes in
+                // its subtree so folders sort alongside files, matching the
+                // hierarchy views and `du`.
+                for view in &mut views {
+                    if view.kind == Kind::Directory {
+                        view.size_alloc = self.subtree_bytes(view.id, Metric::Alloc);
+                        view.size_apparent = self.subtree_bytes(view.id, Metric::Apparent);
+                    }
+                }
+                views.sort_by(|a, b| {
+                    b.size_alloc
+                        .cmp(&a.size_alloc)
+                        .then_with(|| a.name.cmp(&b.name))
+                });
+            }
             SortBy::Name => views.sort_by(|a, b| a.name.cmp(&b.name)),
             SortBy::Mtime => views.sort_by(|a, b| b.mtime_ms.cmp(&a.mtime_ms)),
         }
@@ -278,6 +302,7 @@ impl<'a> QueryEngine<'a> {
                 "ext" => self.reader.ext(*id).to_string(),
                 _ => String::new(),
             };
+            let label = self.reader.label(*id).to_string();
             tiles.push(Tile {
                 node: *id,
                 name,
@@ -291,6 +316,7 @@ impl<'a> QueryEngine<'a> {
                 } else {
                     Some(color_key)
                 },
+                label: opt_label(&label),
             });
         }
 
@@ -305,6 +331,11 @@ impl<'a> QueryEngine<'a> {
 
     fn bucket_size(&self, id: u32, metric: Metric) -> u64 {
         match self.reader.record(id) {
+            // A directory's own size is zero; a tile must show the bytes it
+            // contains, otherwise folders vanish from the treemap.
+            Some(rec) if rec.kind.is_dir() && metric != Metric::Items => {
+                self.subtree_bytes(id, metric)
+            }
             Some(rec) => metric.value(&rec, self.reader.subtree_size(id)),
             None => 0,
         }
@@ -959,6 +990,7 @@ fn dummy_record() -> crate::index::Record {
         uid: 0,
         gid: 0,
         mode: 0,
+        label_id: 0,
     }
 }
 
@@ -1073,5 +1105,86 @@ mod tests {
     fn squarify_handles_zero_total() {
         let rects = squarify(&[0.0, 0.0]);
         assert_eq!(rects.len(), 2);
+    }
+
+    /// root/
+    ///   big/        (3 MB total)
+    ///     a.bin     1 MB
+    ///     b.bin     2 MB
+    ///   small.txt   1 KB
+    fn build_reader(dir: &std::path::Path) -> IndexReader {
+        use crate::index::{IndexWriter, Kind as IKind, ManifestSeed, NodeInput, NO_PARENT};
+
+        fn push(
+            w: &mut IndexWriter,
+            parent: u32,
+            name: &str,
+            kind: IKind,
+            children: u32,
+            size: u64,
+        ) -> u32 {
+            w.push(NodeInput {
+                parent,
+                name,
+                kind,
+                flags: 0,
+                children,
+                size_app: size,
+                size_alloc: size,
+                mtime_ms: 0,
+                uid: 0,
+                gid: 0,
+                mode: 0,
+                ino: 0,
+                dev: 0,
+            })
+            .unwrap()
+        }
+
+        let mut w = IndexWriter::create(dir).unwrap();
+        let root = push(&mut w, NO_PARENT, "root", IKind::Directory, 2, 0);
+        let big = push(&mut w, root, "big", IKind::Directory, 2, 0);
+        push(&mut w, big, "a.bin", IKind::File, 0, 1_000_000);
+        push(&mut w, big, "b.bin", IKind::File, 0, 2_000_000);
+        push(&mut w, root, "small.txt", IKind::File, 0, 1_000);
+        w.finish(ManifestSeed {
+            id: "t".into(),
+            parent_id: None,
+            roots: vec!["root".into()],
+            started_at_ms: 0,
+        })
+        .unwrap();
+        IndexReader::open(dir).unwrap()
+    }
+
+    #[test]
+    fn tiles_size_directories_by_subtree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reader = build_reader(&tmp.path().join("snap"));
+        let q = QueryEngine::new(&reader);
+
+        // depth 1 == the root's direct children, sized by their subtree.
+        let response = q.tiles(0, 1, Metric::Alloc, "ext");
+        let big = response.tiles.iter().find(|t| t.name == "big").expect("big tile");
+        assert_eq!(big.size, 3_000_000);
+        let small = response
+            .tiles
+            .iter()
+            .find(|t| t.name == "small.txt")
+            .expect("small tile");
+        assert_eq!(small.size, 1_000);
+    }
+
+    #[test]
+    fn children_rank_directories_by_subtree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reader = build_reader(&tmp.path().join("snap"));
+        let q = QueryEngine::new(&reader);
+
+        let (total, items) = q.children(0, SortBy::Size, 10, 0);
+        assert_eq!(total, 2);
+        assert_eq!(items[0].name, "big");
+        assert_eq!(items[0].size_alloc, 3_000_000);
+        assert_eq!(items[1].name, "small.txt");
     }
 }

@@ -82,6 +82,8 @@ export interface NodeRecord {
   children: number;
   hasChildren?: boolean;
   dockerMount?: boolean;
+  /** Optional display label, e.g. the Docker container/stack owning an overlay2 layer dir. */
+  label?: string;
   error?: boolean;
 }
 
@@ -94,6 +96,8 @@ export interface Tile {
   w: number;
   h: number;
   colorKey?: string;
+  /** Optional display label, e.g. the Docker container/stack owning an overlay2 layer dir. */
+  label?: string;
 }
 
 export interface TilesResponse {
@@ -135,6 +139,8 @@ export interface ContainerInfo {
   overlayUpper?: string;
   overlayLower?: string;
   overlayMerged?: string;
+  composeProject?: string;
+  composeService?: string;
 }
 
 export interface LocateMatch {

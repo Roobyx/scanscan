@@ -2,6 +2,31 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.11.0] - 2026-10-05
+
+### Added
+- **Docker overlay2 labels.** Scans now annotate `/var/lib/docker/overlay2/<id>`
+  directories with the container, image and compose stack/service that own them (read from
+  each container's `GraphDriver` layer paths and Docker labels). The label appears in the
+  treemap canvas and tooltip and in the ranked table's Kind column, so id-based overlay
+  folders are identifiable at a glance. Shared image layers show `shared by N containers`.
+- The snapshot index gains an interned `labels` table and a `label_id` on each node record
+  (format v3). The record stays 64 bytes by using previously-unused padding, and v2 snapshots
+  remain readable (their padding decodes to "no label"). The upgrade is one-way: a pre-1.11
+  build rejects v3 snapshots, so rolling the container back requires a rescan.
+
+## [1.10.1] - 2026-10-05
+
+### Fixed
+- The core daemon is now supervised. If it dies on its own (e.g. an OOM kill) the server
+  respawns it with a capped backoff and reconnects automatically, instead of leaving a stale
+  socket behind that made every request fail with `ECONNREFUSED /run/scanscan/scanscan.sock`
+  until the container was recreated.
+- The treemap sized directories as 0 bytes, so folders — and everything under them — vanished
+  and the map disagreed with the hierarchy charts. Directory tiles and the ranked table now use
+  the directory's subtree size, and the flat treemap renders the current scope's children so it
+  matches the other views.
+
 ## [1.10.0] - 2026-10-03
 
 ### Added

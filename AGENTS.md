@@ -37,6 +37,10 @@ Full design, data model, and roadmap live in `PLAN.md`. Do not re-derive archite
 
 ## Essential commands
 
+DO NOT RUN OR TEST LOCALLY. Only use the provided portainer stack
+for the project. Only work, test, build and rebuild in the container
+
+
 Rust (workspace root):
 
 ```

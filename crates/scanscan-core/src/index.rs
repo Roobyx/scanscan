@@ -28,7 +28,11 @@ pub const BLOCK_NODES: usize = 65_536;
 const ZSTD_LEVEL: i32 = 3;
 
 /// Bump on any layout change; readers reject unknown versions.
-pub const FORMAT_VERSION: u32 = 2;
+///
+/// v3: the previously-unused `Record` bytes 58..62 now hold `label_id`, an
+/// index into `Manifest::labels` (0 = no label). The record stays 64 bytes, so
+/// v2 snapshots remain readable (their padding decodes to label 0 = empty).
+pub const FORMAT_VERSION: u32 = 3;
 /// Fixed node record size in bytes.
 pub const RECORD_SIZE: usize = 64;
 /// Bytes per node in the optional `inode.bin` column (`ino` + `dev`, both u64).
@@ -107,6 +111,8 @@ pub struct Record {
     pub uid: u32,
     pub gid: u32,
     pub mode: u16,
+    /// Index into `Manifest::labels`; 0 means "no label".
+    pub label_id: u32,
 }
 
 impl Record {
@@ -126,6 +132,7 @@ impl Record {
         b[48..52].copy_from_slice(&self.uid.to_le_bytes());
         b[52..56].copy_from_slice(&self.gid.to_le_bytes());
         b[56..58].copy_from_slice(&self.mode.to_le_bytes());
+        b[58..62].copy_from_slice(&self.label_id.to_le_bytes());
         b
     }
 
@@ -152,6 +159,7 @@ impl Record {
             uid: u32_at(48),
             gid: u32_at(52),
             mode: u16::from_le_bytes([b[56], b[57]]),
+            label_id: u32_at(58),
         }
     }
 }
@@ -187,6 +195,10 @@ pub struct Manifest {
     pub record_size: u32,
     pub stats: ScanStats,
     pub extensions: Vec<String>,
+    /// Interned per-node labels (index 0 is the empty label). Used to annotate
+    /// e.g. Docker overlay2 layer directories with their owning container.
+    #[serde(default)]
+    pub labels: Vec<String>,
     #[serde(default)]
     pub errors: Vec<ScanError>,
     /// True when an `inode.bin` column (ino+dev per node) is present.
@@ -249,6 +261,8 @@ pub struct IndexWriter {
     errors: Vec<ScanError>,
     ext_ids: HashMap<String, u32>,
     extensions: Vec<String>,
+    label_ids: HashMap<String, u32>,
+    labels: Vec<String>,
 }
 
 /// The shared CAS directory for a snapshot: `<snapshot_dir>/../blocks`.
@@ -279,6 +293,8 @@ impl IndexWriter {
             errors: Vec::new(),
             ext_ids: HashMap::new(),
             extensions: vec![String::new()],
+            label_ids: HashMap::new(),
+            labels: vec![String::new()],
         })
     }
 
@@ -341,14 +357,34 @@ impl IndexWriter {
         }
     }
 
+    fn intern_label(&mut self, label: &str) -> u32 {
+        if let Some(id) = self.label_ids.get(label) {
+            *id
+        } else {
+            let id = self.labels.len() as u32;
+            self.labels.push(label.to_string());
+            self.label_ids.insert(label.to_string(), id);
+            id
+        }
+    }
+
     /// Push a node in pre-order and return its id.
     pub fn push(&mut self, node: NodeInput<'_>) -> Result<u32> {
+        self.push_labeled(node, None)
+    }
+
+    /// Push a node, attaching an optional display label (interned per snapshot).
+    pub fn push_labeled(&mut self, node: NodeInput<'_>, label: Option<&str>) -> Result<u32> {
         let id = self.count;
         let name_off = self.names_len as u32;
         self.names.write_all(node.name.as_bytes())?;
         self.names_len += node.name.len() as u64;
 
         let ext_id = self.ext_id(node.name);
+        let label_id = match label {
+            Some(text) if !text.is_empty() => self.intern_label(text),
+            _ => 0,
+        };
         let rec = Record {
             parent: node.parent,
             name_off,
@@ -364,6 +400,7 @@ impl IndexWriter {
             uid: node.uid,
             gid: node.gid,
             mode: node.mode,
+            label_id,
         };
         self.nodes_buf.extend_from_slice(&rec.encode());
 
@@ -462,6 +499,7 @@ impl IndexWriter {
             record_size: RECORD_SIZE as u32,
             stats: self.stats,
             extensions: self.extensions,
+            labels: self.labels,
             errors: self.errors,
             has_inodes: true,
             blocks,
@@ -614,6 +652,25 @@ impl IndexReader {
             .get(rec.ext_id as usize)
             .map(String::as_str)
             .unwrap_or("")
+    }
+
+    /// Resolve a label from an already-decoded `label_id` (0 = none). Avoids a
+    /// second `record()` lookup when the caller already holds the record.
+    pub fn label_of(&self, label_id: u32) -> &str {
+        self.manifest
+            .labels
+            .get(label_id as usize)
+            .map(String::as_str)
+            .unwrap_or("")
+    }
+
+    /// Display label for a node (e.g. the Docker container owning an overlay2
+    /// layer directory), or "" when it has none.
+    pub fn label(&self, id: u32) -> &str {
+        match self.record(id) {
+            Some(rec) => self.label_of(rec.label_id),
+            None => "",
+        }
     }
 
     pub fn subtree_size(&self, id: u32) -> u32 {
@@ -823,6 +880,7 @@ mod tests {
             uid: 1000,
             gid: 1000,
             mode: 0o755,
+            label_id: 5,
         };
         assert_eq!(Record::decode(&rec.encode()), rec);
     }
@@ -845,6 +903,83 @@ mod tests {
         assert_eq!(reader.children(2), vec![3]);
         assert_eq!(reader.ext(1), "txt");
         assert_eq!(reader.ext(3), "bin");
+    }
+
+    #[test]
+    fn labels_roundtrip_and_dedup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let snap = tmp.path().join("snap");
+        let mut w = IndexWriter::create(&snap).unwrap();
+        let root = w
+            .push(NodeInput {
+                parent: NO_PARENT,
+                name: "overlay2",
+                kind: Kind::Directory,
+                flags: flags::DIR,
+                children: 2,
+                size_app: 0,
+                size_alloc: 0,
+                mtime_ms: 0,
+                uid: 0,
+                gid: 0,
+                mode: 0o755,
+                ino: 0,
+                dev: 0,
+            })
+            .unwrap();
+        w.push_labeled(
+            NodeInput {
+                parent: root,
+                name: "aaa",
+                kind: Kind::Directory,
+                flags: flags::DIR,
+                children: 0,
+                size_app: 0,
+                size_alloc: 0,
+                mtime_ms: 0,
+                uid: 0,
+                gid: 0,
+                mode: 0o755,
+                ino: 0,
+                dev: 0,
+            },
+            Some("web (nginx:latest) · myapp/web"),
+        )
+        .unwrap();
+        w.push_labeled(
+            NodeInput {
+                parent: root,
+                name: "bbb",
+                kind: Kind::Directory,
+                flags: flags::DIR,
+                children: 0,
+                size_app: 0,
+                size_alloc: 0,
+                mtime_ms: 0,
+                uid: 0,
+                gid: 0,
+                mode: 0o755,
+                ino: 0,
+                dev: 0,
+            },
+            Some("web (nginx:latest) · myapp/web"),
+        )
+        .unwrap();
+        let manifest = w
+            .finish(ManifestSeed {
+                id: "s".into(),
+                parent_id: None,
+                roots: vec!["overlay2".into()],
+                started_at_ms: 0,
+            })
+            .unwrap();
+        // Empty sentinel + one interned label.
+        assert_eq!(manifest.labels.len(), 2);
+
+        let reader = IndexReader::open(&snap).unwrap();
+        assert_eq!(reader.label(0), "");
+        assert_eq!(reader.label(1), "web (nginx:latest) · myapp/web");
+        assert_eq!(reader.label(2), "web (nginx:latest) · myapp/web");
     }
 
     #[test]

@@ -28,6 +28,10 @@ pub struct NodeRecord {
     pub has_children: bool,
     #[serde(default)]
     pub docker_mount: bool,
+    /// Optional display label, e.g. the Docker container/stack that owns an
+    /// overlay2 layer directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(default)]
     pub error: bool,
 }
@@ -55,6 +59,8 @@ pub struct Tile {
     pub h: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// A bounded tile set for one treemap viewport.

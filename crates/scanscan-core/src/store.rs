@@ -9,9 +9,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use scanscan_ipc::{ScanOptions, ScanProgress, ScanState, ScanSummary};
 
+use crate::docker::{overlay_labels, DockerCollector};
 use crate::error::{CoreError, Result};
 use crate::index::{now_ms, IndexReader, IndexWriter, Manifest, ManifestSeed};
-use crate::scanner::{canonical_root, platform_fs, scan, Previous, Progress};
+use crate::scanner::{canonical_root, platform_fs, scan, LabelIndex, Previous, Progress};
 
 struct Job {
     summary: ScanSummary,
@@ -24,6 +25,7 @@ pub struct Store {
     data_dir: PathBuf,
     snapshots_dir: PathBuf,
     jobs: Arc<Mutex<HashMap<String, Job>>>,
+    docker: DockerCollector,
 }
 
 impl Store {
@@ -35,6 +37,7 @@ impl Store {
             data_dir,
             snapshots_dir,
             jobs: Arc::new(Mutex::new(HashMap::new())),
+            docker: DockerCollector::from_env(),
         })
     }
 
@@ -175,7 +178,11 @@ impl Store {
         let roots_for_thread = roots;
         let options_for_thread = options.clone();
         let snapshots_dir = self.snapshots_dir.clone();
+        // Enumerating Docker is deferred into the scan thread so the scan-start
+        // RPC is not gated on N+1 Docker Engine calls.
+        let docker = self.docker.clone();
         thread::spawn(move || {
+            let labels = docker_label_index(&docker);
             run_scan(
                 jobs,
                 job_id,
@@ -185,6 +192,7 @@ impl Store {
                 options_for_thread,
                 started,
                 cancel,
+                labels,
             );
         });
 
@@ -234,6 +242,21 @@ impl Store {
     }
 }
 
+/// Resolve Docker overlay2 layer directories to owner labels for a scan.
+/// Best-effort: when the Docker socket is missing or errors, no labels are
+/// attached and the scan proceeds unchanged.
+fn docker_label_index(docker: &DockerCollector) -> LabelIndex {
+    let host_root = crate::docker::host_root();
+    let Ok(containers) = docker.containers_detailed() else {
+        return LabelIndex::new();
+    };
+    let mut index = LabelIndex::new();
+    for (path, label) in overlay_labels(&containers, &host_root) {
+        index.insert(path, label);
+    }
+    index
+}
+
 fn run_scan(
     jobs: Arc<Mutex<HashMap<String, Job>>>,
     id: String,
@@ -243,6 +266,7 @@ fn run_scan(
     options: ScanOptions,
     started: i64,
     cancel: Arc<AtomicBool>,
+    labels: LabelIndex,
 ) {
     let fs = platform_fs();
     let mut writer = match IndexWriter::create(&snap) {
@@ -286,6 +310,7 @@ fn run_scan(
         fs.as_ref(),
         &cancel,
         previous.as_ref(),
+        &labels,
         &mut on_progress,
     );
     if let Err(e) = result {

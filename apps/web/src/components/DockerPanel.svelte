@@ -177,6 +177,13 @@
                 </span>
               </header>
               <p class="image" title={container.image}>{container.image}</p>
+              {#if container.composeProject}
+                <p class="image compose">
+                  {container.composeProject}{container.composeService
+                    ? `/${container.composeService}`
+                    : ""}
+                </p>
+              {/if}
               <dl>
                 <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
                 <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
@@ -415,6 +422,11 @@
     font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .image.compose {
+    margin-top: -0.35rem;
+    color: var(--accent);
   }
 
   dl {

@@ -46,6 +46,12 @@ pub struct ContainerInfo {
     pub overlay_lower: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overlay_merged: Option<String>,
+    /// `com.docker.compose.project` label, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compose_project: Option<String>,
+    /// `com.docker.compose.service` label, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compose_service: Option<String>,
 }
 
 /// A container/stack that owns a given host path or id fragment.

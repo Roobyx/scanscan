@@ -10,7 +10,7 @@
 //! optimisations; the portable implementation below is correct on every
 //! platform.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
@@ -63,6 +63,36 @@ impl EntryMeta {
             mode: 0,
             error: Some(message),
         }
+    }
+}
+
+/// Directory path -> display label, resolved while walking. Used to annotate
+/// e.g. Docker overlay2 layer directories with their owning container. Empty
+/// when Docker attribution is unavailable; lookups are then a no-op.
+#[derive(Debug, Default, Clone)]
+pub struct LabelIndex {
+    by_path: HashMap<String, String>,
+}
+
+impl LabelIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, path: impl Into<String>, label: impl Into<String>) {
+        self.by_path.insert(path.into(), label.into());
+    }
+
+    /// Label for a directory path, if any. Cheap no-op when no labels exist.
+    pub fn label_for(&self, path: &Path) -> Option<&str> {
+        if self.is_empty() {
+            return None;
+        }
+        self.by_path.get(path.to_string_lossy().as_ref()).map(String::as_str)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_path.is_empty()
     }
 }
 
@@ -224,6 +254,7 @@ pub fn scan(
     fs: &dyn Filesystem,
     cancel: &AtomicBool,
     previous: Option<&Previous>,
+    labels: &LabelIndex,
     progress: &mut dyn FnMut(&Progress),
 ) -> Result<()> {
     let exclude = build_exclusions(options, roots)?;
@@ -237,6 +268,7 @@ pub fn scan(
         visited: HashSet::new(),
         cancel,
         previous,
+        labels,
         progress,
         started,
         last_emit: Instant::now(),
@@ -316,14 +348,31 @@ fn collect_dirs(
 }
 
 /// Re-emit an old snapshot's subtree into the new writer, remapping parent ids.
+///
+/// Labels are resolved from the *current* scan's [`LabelIndex`] (by rebuilding
+/// each node's path as we walk pre-order), not copied from the old snapshot, so
+/// an unchanged subtree still picks up labels that are newly known.
 fn copy_subtree(
     writer: &mut IndexWriter,
     old: &IndexReader,
     old_root: u32,
     new_root: u32,
+    root_path: &str,
+    labels: &LabelIndex,
 ) -> Result<()> {
     let size = old.subtree_size(old_root);
+    // Pre-order ancestor stack: (exclusive subtree end, parent path length).
+    let mut stack: Vec<(u32, usize)> = Vec::new();
+    let mut path = root_path.to_string();
     for old_id in (old_root + 1)..(old_root + size) {
+        while let Some(&(end, parent_len)) = stack.last() {
+            if old_id >= end {
+                stack.pop();
+                path.truncate(parent_len);
+            } else {
+                break;
+            }
+        }
         let Some(rec) = old.record(old_id) else {
             continue;
         };
@@ -332,22 +381,36 @@ fn copy_subtree(
         } else {
             new_root + (rec.parent - old_root)
         };
+        let name = old.name(old_id);
+        let parent_len = path.len();
+        path.push('/');
+        path.push_str(name);
+        let label = labels.label_for(Path::new(path.as_str()));
         let (ino, dev) = old.inode(old_id).unwrap_or((0, 0));
-        writer.push(NodeInput {
-            parent: parent_new,
-            name: old.name(old_id),
-            kind: rec.kind,
-            flags: rec.flags,
-            children: rec.children,
-            size_app: rec.size_app,
-            size_alloc: rec.size_alloc,
-            mtime_ms: rec.mtime_ms,
-            uid: rec.uid,
-            gid: rec.gid,
-            mode: rec.mode,
-            ino,
-            dev,
-        })?;
+        writer.push_labeled(
+            NodeInput {
+                parent: parent_new,
+                name,
+                kind: rec.kind,
+                flags: rec.flags,
+                children: rec.children,
+                size_app: rec.size_app,
+                size_alloc: rec.size_alloc,
+                mtime_ms: rec.mtime_ms,
+                uid: rec.uid,
+                gid: rec.gid,
+                mode: rec.mode,
+                ino,
+                dev,
+            },
+            label,
+        )?;
+        let subtree = old.subtree_size(old_id);
+        if subtree > 1 {
+            stack.push((old_id + subtree, parent_len));
+        } else {
+            path.truncate(parent_len);
+        }
     }
     Ok(())
 }
@@ -361,6 +424,7 @@ struct Walker<'a> {
     visited: HashSet<(u64, u64)>,
     cancel: &'a AtomicBool,
     previous: Option<&'a Previous>,
+    labels: &'a LabelIndex,
     progress: &'a mut dyn FnMut(&Progress),
     started: Instant,
     last_emit: Instant,
@@ -519,22 +583,34 @@ impl Walker<'_> {
                             .record(old_id)
                             .map(|rec| rec.children)
                             .unwrap_or(0);
-                        let new_id = self.writer.push(NodeInput {
-                            parent,
-                            name: &entry.name,
-                            kind: Kind::Directory,
-                            flags: extra,
-                            children: old_children,
-                            size_app: 0,
-                            size_alloc: 0,
-                            mtime_ms: entry.mtime_ms,
-                            uid: entry.uid,
-                            gid: entry.gid,
-                            mode: entry.mode,
-                            ino: entry.ino,
-                            dev: entry.dev,
-                        })?;
-                        copy_subtree(self.writer, &previous.reader, old_id, new_id)?;
+                        let label = self.labels.label_for(&entry.path);
+                        let new_id = self.writer.push_labeled(
+                            NodeInput {
+                                parent,
+                                name: &entry.name,
+                                kind: Kind::Directory,
+                                flags: extra,
+                                children: old_children,
+                                size_app: 0,
+                                size_alloc: 0,
+                                mtime_ms: entry.mtime_ms,
+                                uid: entry.uid,
+                                gid: entry.gid,
+                                mode: entry.mode,
+                                ino: entry.ino,
+                                dev: entry.dev,
+                            },
+                            label,
+                        )?;
+                        let root_path = entry.path.to_string_lossy();
+                        copy_subtree(
+                            self.writer,
+                            &previous.reader,
+                            old_id,
+                            new_id,
+                            root_path.as_ref(),
+                            self.labels,
+                        )?;
                         self.tick(&entry.path);
                         return Ok(());
                     }
@@ -546,21 +622,25 @@ impl Walker<'_> {
             Ok(e) => e,
             Err(e) => {
                 self.writer.push_error(entry.path.to_string_lossy(), e.to_string());
-                self.writer.push(NodeInput {
-                    parent,
-                    name: &entry.name,
-                    kind: Kind::Directory,
-                    flags: extra | flags::ERROR,
-                    children: 0,
-                    size_app: 0,
-                    size_alloc: 0,
-                    mtime_ms: entry.mtime_ms,
-                    uid: entry.uid,
-                    gid: entry.gid,
-                    mode: entry.mode,
-                    ino: entry.ino,
-                    dev: entry.dev,
-                })?;
+                let label = self.labels.label_for(&entry.path);
+                self.writer.push_labeled(
+                    NodeInput {
+                        parent,
+                        name: &entry.name,
+                        kind: Kind::Directory,
+                        flags: extra | flags::ERROR,
+                        children: 0,
+                        size_app: 0,
+                        size_alloc: 0,
+                        mtime_ms: entry.mtime_ms,
+                        uid: entry.uid,
+                        gid: entry.gid,
+                        mode: entry.mode,
+                        ino: entry.ino,
+                        dev: entry.dev,
+                    },
+                    label,
+                )?;
                 self.tick(&entry.path);
                 return Ok(());
             }
@@ -572,21 +652,25 @@ impl Walker<'_> {
             .collect();
         let child_count = kept.len() as u32;
 
-        let id = self.writer.push(NodeInput {
-            parent,
-            name: &entry.name,
-            kind: Kind::Directory,
-            flags: extra,
-            children: child_count,
-            size_app: 0,
-            size_alloc: 0,
-            mtime_ms: entry.mtime_ms,
-            uid: entry.uid,
-            gid: entry.gid,
-            mode: entry.mode,
-            ino: entry.ino,
-            dev: entry.dev,
-        })?;
+        let label = self.labels.label_for(&entry.path);
+        let id = self.writer.push_labeled(
+            NodeInput {
+                parent,
+                name: &entry.name,
+                kind: Kind::Directory,
+                flags: extra,
+                children: child_count,
+                size_app: 0,
+                size_alloc: 0,
+                mtime_ms: entry.mtime_ms,
+                uid: entry.uid,
+                gid: entry.gid,
+                mode: entry.mode,
+                ino: entry.ino,
+                dev: entry.dev,
+            },
+            label,
+        )?;
         self.tick(&entry.path);
 
         for child in kept {
@@ -662,6 +746,7 @@ mod tests {
             &fs,
             &AtomicBool::new(false),
             None,
+            &LabelIndex::new(),
             &mut progress,
         )
         .unwrap();
@@ -682,6 +767,58 @@ mod tests {
 
         let reader = IndexReader::open(&snap).unwrap();
         assert_eq!(reader.subtree_size(0), 4);
+    }
+
+    #[test]
+    fn applies_labels_to_matching_directories() {
+        let tmp = tempfile::tempdir().unwrap();
+        let snap_tmp = tempfile::tempdir().unwrap();
+        fixture(tmp.path());
+        let root = tmp.path().to_path_buf();
+
+        let mut labels = LabelIndex::new();
+        labels.insert(
+            root.join("sub").to_string_lossy().into_owned(),
+            "web (nginx:latest) · myapp/web",
+        );
+
+        let snap = snap_tmp.path().join("snap");
+        let mut writer = IndexWriter::create(&snap).unwrap();
+        let options = ScanOptions::new(vec![root.to_string_lossy().into_owned()]);
+        let mut progress = |_: &Progress| {};
+        scan(
+            &mut writer,
+            std::slice::from_ref(&root),
+            &options,
+            &PortableFs,
+            &AtomicBool::new(false),
+            None,
+            &labels,
+            &mut progress,
+        )
+        .unwrap();
+        writer
+            .finish(ManifestSeed {
+                id: "t".into(),
+                parent_id: None,
+                roots: vec![root.to_string_lossy().into_owned()],
+                started_at_ms: 0,
+            })
+            .unwrap();
+
+        let reader = IndexReader::open(&snap).unwrap();
+        let sub = reader
+            .children(0)
+            .into_iter()
+            .find(|id| reader.name(*id) == "sub")
+            .expect("sub dir");
+        assert_eq!(reader.label(sub), "web (nginx:latest) · myapp/web");
+        let file = reader
+            .children(0)
+            .into_iter()
+            .find(|id| reader.name(*id) == "a.txt")
+            .expect("a.txt");
+        assert_eq!(reader.label(file), "");
     }
 
     #[test]

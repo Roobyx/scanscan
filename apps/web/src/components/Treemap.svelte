@@ -72,6 +72,11 @@
         ctx.fillText(truncate(ctx, tile.name, w - 8), x + 4, y + 4);
         ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
         ctx.fillText(formatBytes(tile.size), x + 4, y + 20);
+        if (tile.label && h >= 36) {
+          ctx.fillStyle = "rgba(11, 14, 20, 0.72)";
+          ctx.font = "italic 11px ui-sans-serif, system-ui, sans-serif";
+          ctx.fillText(truncate(ctx, tile.label, w - 8), x + 4, y + 36);
+        }
       }
     }
   }
@@ -151,6 +156,9 @@
   {#if hovered}
     <div class="tooltip" style="left: {pointerX}px; top: {pointerY}px">
       <strong>{hovered.name}</strong>
+      {#if hovered.label}
+        <span class="label">{hovered.label}</span>
+      {/if}
       <span>{formatBytes(hovered.size)} · {hoverPercent.toFixed(1)}%</span>
     </div>
   {/if}
@@ -201,5 +209,10 @@
   .tooltip span {
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+  }
+
+  .tooltip .label {
+    color: var(--accent);
+    font-style: italic;
   }
 </style>
