@@ -34,6 +34,10 @@ pub struct NodeRecord {
     pub label: Option<String>,
     #[serde(default)]
     pub error: bool,
+    /// Absolute filesystem path, populated only by views that resolve it (e.g.
+    /// the Duplicates list). Omitted from the wire when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// One page of a directory listing.

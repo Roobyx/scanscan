@@ -85,6 +85,8 @@ export interface NodeRecord {
   /** Optional display label, e.g. the Docker container/stack owning an overlay2 layer dir. */
   label?: string;
   error?: boolean;
+  /** Absolute filesystem path, populated only where the core resolves it (e.g. Duplicates). */
+  path?: string;
 }
 
 export interface Tile {

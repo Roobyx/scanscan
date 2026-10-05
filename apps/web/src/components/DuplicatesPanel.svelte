@@ -1,6 +1,11 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+
+  import type { NodeRecord } from "@scanscan/api-types";
+
   import type { DupGroup } from "../lib/api.js";
   import { errorMessage, getDuplicates } from "../lib/api.js";
+  import { copyText } from "../lib/clipboard.js";
   import { formatBytes } from "../lib/format.js";
 
   interface Props {
@@ -17,7 +22,11 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let expanded = $state<number | null>(null);
+  let copiedId = $state<number | null>(null);
   let seq = 0;
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onDestroy(() => clearTimeout(copyTimer));
 
   const totalWasted = $derived(groups.reduce((sum, group) => sum + group.wasted, 0));
 
@@ -45,6 +54,14 @@
 
   function toggle(index: number): void {
     expanded = expanded === index ? null : index;
+  }
+
+  async function copyPath(item: NodeRecord): Promise<void> {
+    const ok = await copyText(item.path ?? item.name);
+    if (!ok) return;
+    copiedId = item.id;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => (copiedId = null), 1200);
   }
 </script>
 
@@ -97,8 +114,17 @@
             <ul class="items">
               {#each group.items as item (item.id)}
                 <li>
-                  <span class="item-name" title={item.name}>{item.name}</span>
-                  <span class="item-id">#{item.id}</span>
+                  <span class="item-path" title={item.path ?? item.name}>{item.path ?? item.name}</span>
+                  <button
+                    type="button"
+                    class="copy"
+                    class:copied={copiedId === item.id}
+                    onclick={() => void copyPath(item)}
+                    aria-label={copiedId === item.id ? "Copied path" : "Copy path"}
+                    title={copiedId === item.id ? "Copied" : "Copy path"}
+                  >
+                    {copiedId === item.id ? "Copied" : "Copy"}
+                  </button>
                 </li>
               {/each}
             </ul>
@@ -229,23 +255,43 @@
 
   .items li {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.2rem 0;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
     font-size: 0.78rem;
   }
 
-  .item-name {
+  .item-path {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
   }
 
-  .item-id {
+  .copy {
+    flex: none;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: none;
     color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    font: inherit;
+    font-size: 0.7rem;
+    cursor: pointer;
+  }
+
+  .copy:hover {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  }
+
+  .copy.copied {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .state {

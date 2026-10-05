@@ -68,6 +68,13 @@ carry a `label` naming the owning container, image and compose stack/service, e.
 (omitted when absent) and is read-only metadata; it never affects sizes. Snapshots written
 without Docker simply have no labels.
 
+## Duplicates
+
+`GET /scans/:id/duplicates` groups metadata-identical files (same name+size, optionally +mtime)
+and returns up to 50 example nodes per group. Each item carries the full filesystem path in
+`NodeRecord.path` (resolved from the snapshot's canonical root), so callers can show or copy it
+directly.
+
 ## Snapshots & diffs
 
 A scan produces an immutable snapshot. `--incremental` reuses unchanged blocks from the parent

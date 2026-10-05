@@ -86,6 +86,7 @@ impl NodeView {
             docker_mount: self.flags & flags::DOCKER_MOUNT != 0,
             label: opt_label(&self.label),
             error: self.flags & flags::ERROR != 0,
+            path: None,
         }
     }
 }
@@ -618,8 +619,10 @@ impl<'a> QueryEngine<'a> {
             }
         }
 
-        // Pass 2: collect up to 50 example nodes per duplicate group.
+        // Pass 2: collect up to 50 example nodes per duplicate group, resolving
+        // each one's absolute path so the UI can show and copy it.
         if !groups.is_empty() {
+            let root_ids = self.root_node_ids();
             for id in self.reader.subtree_range(scope) {
                 let Some(rec) = self.reader.record(id) else {
                     continue;
@@ -635,7 +638,9 @@ impl<'a> QueryEngine<'a> {
                 if let Some(&gi) = index.get(&key) {
                     if groups[gi].items.len() < 50 {
                         if let Some(view) = self.node(id) {
-                            groups[gi].items.push(view.to_record());
+                            let mut record = view.to_record();
+                            record.path = self.absolute_path(id, &root_ids);
+                            groups[gi].items.push(record);
                         }
                     }
                 }
@@ -645,6 +650,47 @@ impl<'a> QueryEngine<'a> {
         groups.sort_by(|a, b| b.wasted.cmp(&a.wasted));
         groups.truncate(limit.max(1));
         groups
+    }
+
+    /// Node ids with no parent (snapshot roots), in id order.
+    ///
+    /// Roots are contiguous pre-order, so each next root starts right after the
+    /// previous root's subtree; this walks roots, not every node.
+    fn root_node_ids(&self) -> Vec<u32> {
+        let mut ids = Vec::new();
+        let len = self.reader.len();
+        let mut id = 0u32;
+        while id < len {
+            ids.push(id);
+            id = id.saturating_add(self.reader.subtree_size(id).max(1));
+        }
+        ids
+    }
+
+    /// Absolute filesystem path for a node, or `None` when it cannot be resolved.
+    ///
+    /// A root's node name is only its basename, so the path is rebuilt from the
+    /// manifest's canonical root path plus the names of the nodes below it.
+    fn absolute_path(&self, id: u32, root_ids: &[u32]) -> Option<String> {
+        let mut names: Vec<&str> = Vec::new();
+        let mut current = id;
+        loop {
+            let rec = self.reader.record(current)?;
+            if rec.parent == crate::index::NO_PARENT {
+                let root_index = root_ids.iter().position(|&root| root == current)?;
+                let base = self.reader.manifest().roots.get(root_index)?;
+                let mut path = base.clone();
+                for name in names.iter().rev() {
+                    if !path.ends_with('/') {
+                        path.push('/');
+                    }
+                    path.push_str(name);
+                }
+                return Some(path);
+            }
+            names.push(self.reader.name(current));
+            current = rec.parent;
+        }
     }
 
     /// Age × size heatmap of file mass.
@@ -1230,6 +1276,66 @@ mod tests {
         assert_eq!(sizes.get("root/big/a.bin"), Some(&1_000_000));
         assert_eq!(sizes.get("root/big/b.bin"), Some(&2_000_000));
         assert_eq!(sizes.get("root/small.txt"), Some(&1_000));
+    }
+
+    #[test]
+    fn duplicates_items_carry_absolute_paths() {
+        use crate::index::{IndexWriter, Kind as IKind, ManifestSeed, NodeInput, NO_PARENT};
+
+        fn push(
+            w: &mut IndexWriter,
+            parent: u32,
+            name: &str,
+            kind: IKind,
+            children: u32,
+            size: u64,
+        ) -> u32 {
+            w.push(NodeInput {
+                parent,
+                name,
+                kind,
+                flags: 0,
+                children,
+                size_app: size,
+                size_alloc: size,
+                mtime_ms: 0,
+                uid: 0,
+                gid: 0,
+                mode: 0,
+                ino: 0,
+                dev: 0,
+            })
+            .unwrap()
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("snap");
+        let mut w = IndexWriter::create(&dir).unwrap();
+        let root = push(&mut w, NO_PARENT, "root", IKind::Directory, 2, 0);
+        let a = push(&mut w, root, "a", IKind::Directory, 1, 0);
+        let b = push(&mut w, root, "b", IKind::Directory, 1, 0);
+        push(&mut w, a, "dup.bin", IKind::File, 0, 1_000);
+        push(&mut w, b, "dup.bin", IKind::File, 0, 1_000);
+        w.finish(ManifestSeed {
+            id: "t".into(),
+            parent_id: None,
+            roots: vec!["root".into()],
+            started_at_ms: 0,
+        })
+        .unwrap();
+        let reader = IndexReader::open(&dir).unwrap();
+
+        let q = QueryEngine::new(&reader);
+        let groups = q.duplicates(0, "name+size", 10);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].items.len(), 2);
+        let mut paths: Vec<String> = groups[0]
+            .items
+            .iter()
+            .filter_map(|item| item.path.clone())
+            .collect();
+        paths.sort();
+        assert_eq!(paths, vec!["root/a/dup.bin", "root/b/dup.bin"]);
     }
 
     #[test]

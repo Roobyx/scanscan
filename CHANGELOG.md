@@ -2,6 +2,15 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.12.0] - 2026-10-05
+
+### Added
+- **Duplicate file paths with copy-to-clipboard.** Expanding a group in the Duplicates tab now
+  lists the full filesystem path of every matching file, each with a Copy button. The core
+  resolves the absolute path from the snapshot's canonical root and returns it as
+  `NodeRecord.path`; the copy helper falls back to a hidden textarea on non-secure (plain HTTP)
+  origins where `navigator.clipboard` is unavailable.
+
 ## [1.11.2] - 2026-10-05
 
 ### Fixed
