@@ -113,9 +113,15 @@ fn dev_of(path: &Path) -> u64 {
         use std::os::unix::fs::MetadataExt;
         std::fs::symlink_metadata(path).map(|m| m.dev()).unwrap_or(0)
     }
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = path;
+        use std::os::windows::fs::MetadataExt;
+        std::fs::symlink_metadata(path)
+            .map(|m| m.volume_serial_number().unwrap_or(0) as u64)
+            .unwrap_or(0)
+    }
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
         0
     }
 }

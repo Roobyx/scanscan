@@ -237,15 +237,109 @@ impl Filesystem for LinuxFs {
     }
 }
 
+/// Windows filesystem implementation.
+///
+/// Uses std::fs APIs enriched with std::os::windows::fs::MetadataExt to
+/// provide dev/ino/nlink metadata for hardlink dedup and mount detection.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct WindowsFs;
+
+impl Filesystem for WindowsFs {
+    fn read_dir(&self, dir: &Path) -> Result<Vec<EntryMeta>> {
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for entry in std::fs::read_dir(dir)? {
+            match entry {
+                Ok(e) => paths.push(e.path()),
+                Err(e) => paths.push(PathBuf::from(format!(
+                    "{}/<unreadable:{e}>",
+                    dir.display()
+                ))),
+            }
+        }
+        let mut metas: Vec<EntryMeta> = paths
+            .par_iter()
+            .map(|p| match std::fs::symlink_metadata(p) {
+                Ok(meta) => meta_for(p, meta),
+                Err(e) => EntryMeta::errored(p, e.to_string()),
+            })
+            .collect();
+        metas.shrink_to_fit();
+        Ok(metas)
+    }
+
+    fn metadata(&self, path: &Path) -> Result<EntryMeta> {
+        let meta = std::fs::symlink_metadata(path)?;
+        Ok(meta_for(path, meta))
+    }
+
+    fn metadata_follow(&self, path: &Path) -> Result<EntryMeta> {
+        let meta = std::fs::metadata(path)?;
+        Ok(meta_for(path, meta))
+    }
+}
+
+fn meta_for(path: &Path, meta: std::fs::Metadata) -> EntryMeta {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let is_symlink = meta.file_type().is_symlink();
+    let is_dir = meta.is_dir();
+
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    #[cfg(target_os = "windows")]
+    let (size_alloc, nlink, dev, ino, uid, gid, mode) = {
+        use std::os::windows::fs::MetadataExt;
+        (
+            0, // size_alloc: allocation size not available via std::fs on Windows
+            meta.number_of_links().unwrap_or(1) as u64,
+            meta.volume_serial_number().unwrap_or(0) as u64,
+            meta.file_index().unwrap_or(0),
+            0, // uid: not available on Windows
+            0, // gid: not available on Windows
+            0, // mode: not available on Windows
+        )
+    };
+    #[cfg(not(target_os = "windows"))]
+    let (size_alloc, nlink, dev, ino, uid, gid, mode) =
+        (meta.len(), 1u64, 0u64, 0u64, 0u32, 0u32, 0u16);
+
+    EntryMeta {
+        path: path.to_path_buf(),
+        name,
+        is_dir,
+        is_symlink,
+        size_apparent: meta.len(),
+        size_alloc,
+        mtime_ms,
+        nlink,
+        dev,
+        ino,
+        uid,
+        gid,
+        mode,
+        error: None,
+    }
+}
+
 /// Resolve the platform-appropriate filesystem implementation.
 #[cfg(unix)]
 pub fn platform_fs() -> Box<dyn Filesystem> {
     Box::new(LinuxFs)
 }
 
-/// Without `statx` there is nothing to reuse, so the portable walker stats each
-/// entry itself.
-#[cfg(not(unix))]
+#[cfg(target_os = "windows")]
+pub fn platform_fs() -> Box<dyn Filesystem> {
+    Box::new(WindowsFs)
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
 pub fn platform_fs() -> Box<dyn Filesystem> {
     Box::new(PortableFs)
 }
