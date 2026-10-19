@@ -3,6 +3,7 @@
 
   import { colorForExtension, colorForKey, extensionOf, type ColorMode } from "../lib/color.js";
   import { formatBytes, percent } from "../lib/format.js";
+  import { tooltipStyle } from "../lib/tooltip.js";
 
   interface Props {
     tiles: Tile[];
@@ -107,8 +108,8 @@
     hovered = tile;
     if (tile && canvas) {
       const rect = canvas.getBoundingClientRect();
-      pointerX = event.clientX - rect.left + 12;
-      pointerY = event.clientY - rect.top + 12;
+      pointerX = event.clientX - rect.left;
+      pointerY = event.clientY - rect.top;
     }
   }
 
@@ -154,7 +155,10 @@
     onkeydown={handleKeydown}
   ></canvas>
   {#if hovered}
-    <div class="tooltip" style="left: {pointerX}px; top: {pointerY}px">
+    <div
+      class="tooltip"
+      style={tooltipStyle({ x: pointerX, y: pointerY, width, height })}
+    >
       <strong>{hovered.name}</strong>
       {#if hovered.label}
         <span class="label">{hovered.label}</span>

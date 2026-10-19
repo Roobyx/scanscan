@@ -2,6 +2,35 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.13.0] - 2026-10-19
+
+### Added
+- **Drives dashboard, and it is now the default view.** The app opens on one card per host
+  filesystem: a usage bar with free/used text (Windows Explorer style), the filesystem type, the
+  newest snapshot's size and age, and Open/Scan actions. `GET /api/v1/host/drives` takes the host
+  mounts from the core and enriches each with `statfs` capacity, keeping one card per device (the
+  shortest host path wins) and falling back to the configured root with a warning while the core
+  is down.
+- `formatAgo` in the web client formats the snapshot age shown on each card, with unit tests.
+- **The right panel is now a tree of the whole snapshot.** It is always rooted at the root the scan
+  started from (not at the folder you drilled into), loads levels lazily, keeps the walked path
+  expanded, highlights the current scope, and stays virtualized. Sort toggles now order siblings.
+- **File and folder icons** (small SVGs, file icons tinted by extension) replace the Kind column.
+- **Drive stats in the chart panel head**: a usage bar with free, total and used percentage for the
+  filesystem the selected snapshot came from.
+
+### Changed
+- **New scan** now opens the launcher inside the dashboard instead of blanking the selection, and
+  the launcher is offered automatically while no snapshot exists yet.
+- Host drives are loaded once by the app shell and shared by the Drives dashboard and the chart
+  panel head instead of being fetched per component.
+
+### Fixed
+- **Chart tooltips were cut off at the right and bottom edges.** Treemap, sunburst and bubble
+  tooltips now flip to the other side of the cursor when the default below-right offset would
+  leave the chart box. They are anchored by their own right/bottom edge (`lib/tooltip.ts`), so the
+  placement needs no measurement and stays stable while moving between tiles.
+
 ## [1.12.0] - 2026-10-05
 
 ### Added

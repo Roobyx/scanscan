@@ -4,6 +4,7 @@
   import { colorForKey } from "../lib/color.js";
   import { formatBytes } from "../lib/format.js";
   import { sunburstArcs } from "../lib/layout.js";
+  import { tooltipStyle } from "../lib/tooltip.js";
 
   interface Props {
     root: HierarchyNode;
@@ -15,6 +16,9 @@
   const SIZE = 640;
   const arcs = $derived(sunburstArcs(root, { size: SIZE, rings: 2 }));
   let hovered = $state<{ node: HierarchyNode; x: number; y: number } | null>(null);
+  let container = $state<HTMLDivElement | null>(null);
+  let width = $state(0);
+  let height = $state(0);
 
   function handleKeydown(event: KeyboardEvent, node: HierarchyNode): void {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -23,11 +27,26 @@
   }
 
   function handleMove(event: MouseEvent, node: HierarchyNode): void {
-    hovered = { node, x: event.clientX, y: event.clientY };
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    hovered = { node, x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
+
+  $effect(() => {
+    if (!container) return;
+    const element = container;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      width = entry.contentRect.width;
+      height = entry.contentRect.height;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
 </script>
 
-<div class="sunburst">
+<div class="sunburst" bind:this={container}>
   <svg viewBox="0 0 {SIZE} {SIZE}" role="group" aria-label="Sunburst chart of disk usage">
     {#each arcs as arc (arc.node.id)}
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_static_element_interactions a11y_no_noninteractive_tabindex -->
@@ -61,7 +80,10 @@
     {/each}
   </svg>
   {#if hovered}
-    <div class="tooltip" style="left: {hovered.x + 14}px; top: {hovered.y + 14}px">
+    <div
+      class="tooltip"
+      style={tooltipStyle({ x: hovered.x, y: hovered.y, width, height })}
+    >
       <strong>{hovered.node.name}</strong>
       <span>{formatBytes(hovered.node.size)}</span>
     </div>
@@ -103,7 +125,7 @@
   }
 
   .tooltip {
-    position: fixed;
+    position: absolute;
     z-index: 5;
     display: flex;
     flex-direction: column;

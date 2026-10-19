@@ -7,6 +7,9 @@ The web client renders from a single snapshot and keeps every view coupled to th
 
 ## Views
 
+- **Drives** — the default view. One card per host filesystem mounted into the container: a
+  usage bar with free and used space, the filesystem type, the newest snapshot's size and age,
+  and Open/Scan actions. A card scanns only its own filesystem.
 - **Treemap** — squarified rectangles; area = size, nesting = hierarchy. Click to drill in,
   breadcrumbs to zoom out, hover for a tooltip.
 - **Sunburst / Icicle / Bubble** — radial, stacked and packed reads on the same hierarchy.
@@ -16,6 +19,19 @@ The web client renders from a single snapshot and keeps every view coupled to th
 - **Docker** — container cards, a mounts table, and live CPU/memory stats.
 - **Duplicates** — metadata-identical files ranked by wasted space.
 - **Diff** — pick a baseline snapshot and see grown/shrunk/added/removed paths.
+
+## Tree panel
+
+The panel beside the chart is a tree of the whole snapshot, always rooted at the root the scan
+started from — not at the folder you drilled into — so the path you walked is always visible and
+the row of the current scope is highlighted. Folders expand with the chevron; rows carry a
+file/folder icon (file icons are tinted by extension) instead of a kind column, and are sortable by
+name, allocated, apparent or item count.
+
+## Drive stats
+
+The chart panel head shows the selected snapshot's filesystem: a small usage bar with free, total
+and used percentage, so a treemap can be read against the drive it came from.
 
 ## Colour modes
 

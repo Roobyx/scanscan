@@ -21,6 +21,8 @@ services:
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
       - scanscan-data:/data
+      # Each mounted filesystem is one card on the Drives dashboard; add another
+      # bind mount (e.g. /mnt/backup:/host/mnt/backup:ro) to list more drives.
       - ${HOST_MOUNT:-/}:/host:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:

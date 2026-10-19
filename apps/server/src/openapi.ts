@@ -50,6 +50,13 @@ export const openApiDocument = {
     "/host/mounts": {
       get: { tags: ["core"], summary: "Host filesystems (drive picker)", responses: ok },
     },
+    "/host/drives": {
+      get: {
+        tags: ["core"],
+        summary: "Host drives with capacity and used/free bytes (dashboard cards)",
+        responses: ok,
+      },
+    },
     "/scans": {
       get: { tags: ["scans"], summary: "List scans", responses: ok },
       post: {

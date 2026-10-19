@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {
+    DriveInfo,
     HealthResponse,
     HeatmapResponse,
     HierarchyNode,
@@ -16,6 +17,8 @@
   import Bubble from "./components/Bubble.svelte";
   import DiffPanel from "./components/DiffPanel.svelte";
   import DockerPanel from "./components/DockerPanel.svelte";
+  import DriveStats from "./components/DriveStats.svelte";
+  import DrivesDashboard from "./components/DrivesDashboard.svelte";
   import DuplicatesPanel from "./components/DuplicatesPanel.svelte";
   import Heatmap from "./components/Heatmap.svelte";
   import Histogram from "./components/Histogram.svelte";
@@ -31,6 +34,7 @@
     errorMessage,
     exportUrl,
     getChildren,
+    getDrives,
     getHealth,
     getHeatmap,
     getHistogram,
@@ -47,6 +51,7 @@
   import { formatBytes } from "./lib/format.js";
 
   type ViewId =
+    | "dashboard"
     | "treemap"
     | "sunburst"
     | "icicle"
@@ -68,6 +73,7 @@
   }
 
   const VIEWS: ViewDef[] = [
+    { id: "dashboard", label: "Drives" },
     { id: "treemap", label: "Treemap" },
     { id: "sunburst", label: "Sunburst" },
     { id: "icicle", label: "Icicle" },
@@ -107,7 +113,7 @@
     const scopeRaw = params.get("scope");
     const scopeNum = scopeRaw === null ? Number.NaN : Number(scopeRaw);
     return {
-      view: matched ? matched.id : "treemap",
+      view: matched ? matched.id : "dashboard",
       scope: Number.isFinite(scopeNum) && scopeNum >= 0 ? scopeNum : null,
       color: params.get("color") === "ext" ? "ext" : "size",
       q: params.get("q") ?? "",
@@ -122,11 +128,16 @@
   let scans = $state<ScanSummary[]>([]);
   let selectedId = $state<string | null>(null);
 
+  let drives = $state<DriveInfo[]>([]);
+  let drivesHostRoot = $state("/host");
+  let drivesWarning = $state<string | null>(null);
+  let drivesError = $state<string | null>(null);
+  let drivesLoading = $state(false);
+
   let scopePath = $state<Crumb[]>([]);
   let scopeId = $state(0);
 
   let tiles = $state<Tile[]>([]);
-  let children = $state<NodeRecord[]>([]);
   let childTotal = $state(0);
   let truncated = $state(false);
 
@@ -144,6 +155,7 @@
 
   let searchOpen = $state(initial.q.length > 0);
   let searchQuery = $state(initial.q);
+  let launcherOpen = $state(false);
 
   let gcBusy = $state(false);
   let gcMessage = $state<string | null>(null);
@@ -168,6 +180,7 @@
   const hasCompleted = $derived(scans.some((scan) => scan.state === "completed"));
 
   const viewSummary = $derived.by(() => {
+    if (view === "dashboard") return `${scans.length} snapshots`;
     if (view === "treemap") return `${formatBytes(totalBytes)}${truncated ? " · truncated" : ""}`;
     if (isHierarchyView) return tree ? formatBytes(tree.size) : "—";
     if (view === "bars") return `${topNodes.length} nodes`;
@@ -182,11 +195,56 @@
     view === "extensions" ? "Extensions" : view === "age" ? "Age" : "Owners",
   );
 
+  const scopePathIds = $derived.by(() => scopePath.map((crumb) => crumb.id));
+
+  /** The filesystem the selected snapshot scann, matched to the host drives. */
+  const activeDrive = $derived.by(() => {
+    const summary = scans.find((scan) => scan.id === selectedId);
+    const root = summary ? summary.roots[0] ?? "" : "";
+    if (root.length === 0) return null;
+    const same = drives.find((drive) => drive.containerPath === root);
+    if (same) return same;
+    let best: DriveInfo | null = null;
+    for (const drive of drives) {
+      if (root.slice(0, drive.containerPath.length) !== drive.containerPath) continue;
+      if (!best || drive.containerPath.length > best.containerPath.length) best = drive;
+    }
+    return best;
+  });
+
+  /** The starting root of the snapshot, always the top row of the tree panel. */
+  const treeRoot = $derived.by(() => {
+    const root = scopePath[0];
+    if (!root) return null;
+    const summary = scans.find((scan) => scan.id === selectedId);
+    return {
+      id: root.id,
+      name: root.name,
+      size: summary?.bytesAlloc ?? 0,
+      items: (summary?.files ?? 0) + (summary?.dirs ?? 0),
+    };
+  });
+
   async function loadScans(): Promise<void> {
     try {
       scans = await listScans();
     } catch (cause) {
       error = errorMessage(cause);
+    }
+  }
+
+  async function loadDrives(): Promise<void> {
+    drivesLoading = true;
+    drivesError = null;
+    try {
+      const response = await getDrives();
+      drives = response.drives;
+      drivesHostRoot = response.hostRoot;
+      drivesWarning = response.warning ?? null;
+    } catch (cause) {
+      drivesError = errorMessage(cause);
+    } finally {
+      drivesLoading = false;
     }
   }
 
@@ -244,6 +302,23 @@
     }
   }
 
+  function openLauncher(): void {
+    view = "dashboard";
+    launcherOpen = true;
+  }
+
+  async function handleLauncherCreated(id: string): Promise<void> {
+    launcherOpen = false;
+    await handleCreated(id);
+  }
+
+  /** Open a drive's snapshot from the dashboard. */
+  async function openScan(id: string): Promise<void> {
+    if (id.length === 0) return;
+    await selectScan(id);
+    view = "treemap";
+  }
+
   async function loadTiles(
     scanId: string,
     scope: number,
@@ -278,7 +353,6 @@
     try {
       const response = await getChildren(scanId, scope, { sort: "size", limit: 1000 });
       if (seq !== childrenSeq) return;
-      children = response.items;
       childTotal = response.total;
     } catch (cause) {
       if (seq !== childrenSeq) return;
@@ -416,12 +490,15 @@
       } catch (cause) {
         healthError = errorMessage(cause);
       }
+      void loadDrives();
       await loadScans();
       const completed = scans
         .filter((scan) => scan.state === "completed")
         .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs));
       const newest = completed[0];
       if (newest) await selectScan(newest.id);
+      // Nothing scann yet: the dashboard is empty, so offer the launcher.
+      if (!newest) launcherOpen = true;
     })();
   });
 
@@ -461,6 +538,7 @@
     const active = view;
     if (
       !scanId ||
+      active === "dashboard" ||
       active === "treemap" ||
       active === "docker" ||
       active === "duplicates" ||
@@ -474,7 +552,8 @@
   $effect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams();
-    params.set("view", view);
+    // The dashboard is the default view, so it stays out of the hash.
+    if (view !== "dashboard") params.set("view", view);
     if (scopeId !== 0) params.set("scope", String(scopeId));
     params.set("color", colorMode);
     const trimmed = searchQuery.trim();
@@ -499,7 +578,7 @@
           {/each}
         </select>
       {/if}
-      <button type="button" class="action" onclick={() => (selectedId = null)}>+ New scan</button>
+      <button type="button" class="action" onclick={openLauncher}>+ New scan</button>
       {#if selectedId}
         <button type="button" class="action" onclick={handleDelete}>Delete</button>
       {/if}
@@ -564,7 +643,40 @@
     </section>
   {/if}
 
-  {#if view === "docker"}
+  {#if view === "dashboard"}
+    <main class="dash">
+      {#if launcherOpen}
+        <section class="panel">
+          <div class="panel-head">
+            <h2>New scan</h2>
+            <button type="button" class="link" onclick={() => (launcherOpen = false)}>Close</button>
+          </div>
+          <div class="launcher-host">
+            <ScanLauncher oncreated={handleLauncherCreated} />
+          </div>
+        </section>
+      {/if}
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Drives</h2>
+          <span class="muted">{viewSummary}</span>
+        </div>
+        <div class="view-host">
+          <DrivesDashboard
+            scans={scans}
+            drives={drives}
+            hostRoot={drivesHostRoot}
+            warning={drivesWarning}
+            error={drivesError}
+            loading={drivesLoading}
+            onrefresh={loadDrives}
+            onopen={openScan}
+            oncreated={handleCreated}
+          />
+        </div>
+      </section>
+    </main>
+  {:else if view === "docker"}
     <main class="solo">
       <section class="panel">
         <div class="panel-head">
@@ -626,6 +738,7 @@
           <div class="crumbs">
             <Breadcrumb path={scopePath} onnavigate={navigate} />
           </div>
+          <DriveStats drive={activeDrive} />
           <span class="muted">{viewSummary}</span>
         </div>
         <div class="view-host" bind:this={treemapHost}>
@@ -705,10 +818,16 @@
 
       <section class="panel">
         <div class="panel-head">
-          <h2>Ranked</h2>
-          <span class="muted">{childTotal.toLocaleString()} items</span>
+          <h2>Tree</h2>
+          <span class="muted">{childTotal.toLocaleString()} items in scope</span>
         </div>
-        <RankedTable items={children} onselect={openNode} />
+        <RankedTable
+          scanId={selectedId}
+          root={treeRoot}
+          path={scopePathIds}
+          scope={scopeId}
+          onselect={openNode}
+        />
       </section>
     </main>
   {/if}
@@ -902,6 +1021,15 @@
     grid-template-columns: 1fr;
   }
 
+  main.dash {
+    display: block;
+    overflow: auto;
+  }
+
+  main.dash .panel {
+    margin-bottom: 1rem;
+  }
+
   main.empty-main {
     display: flex;
     align-items: center;
@@ -954,6 +1082,16 @@
   .crumbs {
     min-width: 0;
     overflow: hidden;
+  }
+
+  .launcher-host {
+    display: flex;
+    flex: 1;
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 0;
+    padding: 1rem;
+    overflow: auto;
   }
 
   .view-host {

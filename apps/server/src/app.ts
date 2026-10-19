@@ -2,8 +2,10 @@ import { PROTOCOL_VERSION } from "@scanscan/api-types";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
+import type { HostMountsResponse } from "@scanscan/api-types";
 import type { ServerConfig } from "./config.js";
 import type { CoreApi } from "./core/client.js";
+import { drivesFromMounts } from "./drives.js";
 import { openApiDocument } from "./openapi.js";
 import type { Scheduler } from "./scheduler.js";
 
@@ -65,6 +67,24 @@ export function createApp({ config, core, scheduler, startedAt = Date.now() }: A
       return c.json(await core.call("host.mounts"));
     } catch (error) {
       return coreError(String(error));
+    }
+  });
+
+  // Drives with capacity for the dashboard. Falls back to the configured roots
+  // so the cards still render while the core is down or restarting.
+  app.get("/api/v1/host/drives", async (c) => {
+    const hostRoot = config.roots[0] ?? "/host";
+    try {
+      const mounts = await core.call<HostMountsResponse>("host.mounts");
+      return c.json({ hostRoot: mounts.hostRoot, drives: drivesFromMounts(mounts.mounts) });
+    } catch (error) {
+      return c.json({
+        hostRoot,
+        drives: drivesFromMounts([
+          { path: "/", containerPath: hostRoot, device: "", fstype: "" },
+        ]),
+        warning: String(error),
+      });
     }
   });
 

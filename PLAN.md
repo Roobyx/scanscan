@@ -398,6 +398,8 @@ config, and graceful supervision of the Rust daemon.
 GET    /api/v1/health
 GET    /api/v1/version
 GET    /api/v1/config
+GET    /api/v1/host/mounts            # drive picker
+GET    /api/v1/host/drives            # drives + capacity for the dashboard cards
 
 GET    /api/v1/scans
 POST   /api/v1/scans                 # {roots, options}

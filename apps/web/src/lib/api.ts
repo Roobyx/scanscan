@@ -1,6 +1,7 @@
 import type {
   ContainerInfo,
   DockerStats,
+  DrivesResponse,
   HealthResponse,
   HeatmapResponse,
   HierarchyNode,
@@ -69,6 +70,11 @@ export function getConfig(): Promise<ServerConfig> {
 
 export function getHostMounts(): Promise<HostMountsResponse> {
   return request<HostMountsResponse>("/host/mounts");
+}
+
+/** Host drives with capacity, for the dashboard cards. */
+export function getDrives(): Promise<DrivesResponse> {
+  return request<DrivesResponse>("/host/drives");
 }
 
 export async function listScans(): Promise<ScanSummary[]> {

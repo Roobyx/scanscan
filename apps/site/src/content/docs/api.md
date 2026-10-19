@@ -11,6 +11,8 @@ All endpoints are read-only except scan creation, cancellation and snapshot GC.
 GET  /api/v1/health
 GET  /api/v1/version
 GET  /api/v1/config
+GET  /api/v1/host/mounts
+GET  /api/v1/host/drives
 ```
 
 ## Scans

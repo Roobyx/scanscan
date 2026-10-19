@@ -219,6 +219,26 @@ export interface HostMountsResponse {
   mounts: HostMount[];
 }
 
+export interface DriveInfo {
+  /** Mountpoint as seen on the host (e.g. `/`, `/mnt/data`). */
+  path: string;
+  /** The same filesystem as seen inside the container; this is the scan root. */
+  containerPath: string;
+  device: string;
+  fstype: string;
+  /** Filesystem capacity, when the host exposes it. */
+  totalBytes?: number;
+  freeBytes?: number;
+  usedBytes?: number;
+}
+
+export interface DrivesResponse {
+  hostRoot: string;
+  drives: DriveInfo[];
+  /** Set when the drive list fell back to the configured roots (e.g. the core is down). */
+  warning?: string;
+}
+
 /** Terminal scan states never transition again. */
 export function isTerminalState(state: ScanState): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";

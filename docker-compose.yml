@@ -17,6 +17,8 @@ services:
     volumes:
       - scanscan-data:/data
       # Host filesystem, read-only. Override HOST_MOUNT to narrow the scope.
+      # Each mounted filesystem is one card on the Drives dashboard; add another
+      # bind mount (e.g. /mnt/backup:/host/mnt/backup:ro) to list more drives.
       - ${HOST_MOUNT:-/}:/host:ro
     depends_on:
       - docker-socket-proxy
