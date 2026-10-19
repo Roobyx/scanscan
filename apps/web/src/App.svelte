@@ -9,7 +9,7 @@
     ScanSummary,
     Tile,
   } from "@scanscan/api-types";
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
 
   import Bars from "./components/Bars.svelte";
   import Breadcrumb from "./components/Breadcrumb.svelte";
@@ -20,19 +20,25 @@
   import DriveStats from "./components/DriveStats.svelte";
   import DrivesDashboard from "./components/DrivesDashboard.svelte";
   import DuplicatesPanel from "./components/DuplicatesPanel.svelte";
+  import FileTypes from "./components/FileTypes.svelte";
   import Heatmap from "./components/Heatmap.svelte";
   import Histogram from "./components/Histogram.svelte";
   import Icicle from "./components/Icicle.svelte";
+  import Icon from "./components/Icon.svelte";
+  import Logo from "./components/Logo.svelte";
+  import Modal from "./components/Modal.svelte";
   import RankedTable from "./components/RankedTable.svelte";
   import ScanLauncher from "./components/ScanLauncher.svelte";
   import ScanProgressPanel from "./components/ScanProgressPanel.svelte";
+  import ScanSwitcher from "./components/ScanSwitcher.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
   import SchedulesPanel from "./components/SchedulesPanel.svelte";
+  import SettingsPanel from "./components/SettingsPanel.svelte";
+  import Spinner from "./components/Spinner.svelte";
   import Sunburst from "./components/Sunburst.svelte";
   import Treemap from "./components/Treemap.svelte";
   import {
     errorMessage,
-    exportUrl,
     getChildren,
     getDrives,
     getHealth,
@@ -43,11 +49,10 @@
     getTop,
     getTree,
     listScans,
-    deleteScan,
-    runGc,
   } from "./lib/api.js";
   import type { HistogramDim } from "./lib/api.js";
   import type { ColorMode } from "./lib/color.js";
+  import { fileTypeLabel, groupOfExtension } from "./lib/file-types.js";
   import { formatBytes } from "./lib/format.js";
 
   type ViewId =
@@ -65,7 +70,8 @@
     | "docker"
     | "duplicates"
     | "diff"
-    | "schedules";
+    | "schedules"
+    | "settings";
 
   interface ViewDef {
     id: ViewId;
@@ -113,7 +119,7 @@
     const scopeRaw = params.get("scope");
     const scopeNum = scopeRaw === null ? Number.NaN : Number(scopeRaw);
     return {
-      view: matched ? matched.id : "dashboard",
+      view: viewParam === "settings" ? "settings" : matched ? matched.id : "dashboard",
       scope: Number.isFinite(scopeNum) && scopeNum >= 0 ? scopeNum : null,
       color: params.get("color") === "ext" ? "ext" : "size",
       q: params.get("q") ?? "",
@@ -144,11 +150,16 @@
   let colorMode = $state<ColorMode>(initial.color);
   let view = $state<ViewId>(initial.view);
   let loading = $state(false);
+  let tileBusy = $state(false);
+  let childBusy = $state(false);
+  let swhitching = $state(true);
   let error = $state<string | null>(null);
 
   let tree = $state<HierarchyNode | null>(null);
   let topNodes = $state<NodeRecord[]>([]);
   let histogram = $state<HistogramBucket[]>([]);
+  /** File-type group the Extensions breakdown is filtered to, or null. */
+  let extGroup = $state<string | null>(null);
   let heatmapData = $state<HeatmapResponse | null>(null);
   let viewLoading = $state(false);
   let viewError = $state<string | null>(null);
@@ -157,15 +168,28 @@
   let searchQuery = $state(initial.q);
   let launcherOpen = $state(false);
 
-  let gcBusy = $state(false);
-  let gcMessage = $state<string | null>(null);
-
   let treemapHost = $state<HTMLDivElement | null>(null);
   let hostW = $state(0);
   let hostH = $state(0);
   let tilesSeq = 0;
   let childrenSeq = 0;
   let viewSeq = 0;
+  let scanSeq = 0;
+  let switchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onDestroy(() => clearTimeout(switchTimer));
+
+  /** Veil the shell while another snapshot is selected and its data arrives. */
+  function beginSwitch(): void {
+    swhitching = true;
+    clearTimeout(switchTimer);
+    switchTimer = setTimeout(() => (swhitching = false), 8000);
+  }
+
+  function endSwitch(): void {
+    clearTimeout(switchTimer);
+    swhitching = false;
+  }
 
   function bucket(value: number): number {
     if (value <= 0) return 0;
@@ -177,7 +201,6 @@
   const scopeLabel = $derived(scopePath[scopePath.length - 1]?.name ?? "/");
   const totalBytes = $derived(tiles.reduce((sum, tile) => sum + tile.size, 0));
   const isHierarchyView = $derived(view === "sunburst" || view === "icicle" || view === "bubble");
-  const hasCompleted = $derived(scans.some((scan) => scan.state === "completed"));
 
   const viewSummary = $derived.by(() => {
     if (view === "dashboard") return `${scans.length} snapshots`;
@@ -191,9 +214,19 @@
     return `${histogram.length} buckets`;
   });
 
-  const breakdownTitle = $derived(
-    view === "extensions" ? "Extensions" : view === "age" ? "Age" : "Owners",
+  /** Extensions breakdown rows, narrowed to the chosen file-type group. */
+  const extItems = $derived.by(() =>
+    extGroup === null
+      ? histogram
+      : histogram.filter((bucket) => groupOfExtension(bucket.key) === extGroup),
   );
+
+  const breakdownTitle = $derived.by(() => {
+    if (view === "extensions") {
+      return extGroup === null ? "Extensions" : `Extensions · ${fileTypeLabel(extGroup)}`;
+    }
+    return view === "age" ? "Age" : "Owners";
+  });
 
   const scopePathIds = $derived.by(() => scopePath.map((crumb) => crumb.id));
 
@@ -249,7 +282,11 @@
   }
 
   async function selectScan(id: string): Promise<void> {
+    const seq = scanSeq + 1;
+    scanSeq = seq;
+    const changed = id !== selectedId;
     selectedId = id;
+    if (changed) beginSwitch();
     const requested = pendingScope;
     pendingScope = null;
     scopeId = requested ?? 0;
@@ -261,7 +298,12 @@
         error = errorMessage(cause);
       }
     }
+    if (seq !== scanSeq) return;
     scopePath = [{ id: requested ?? 0, name: summary?.roots[0] ?? "/" }];
+    extGroup = null;
+    // The treemap drops the veiled shell once its tiles for the new snapshot
+    // arrive; every other view has nothing left to wait for.
+    if (view !== "treemap") endSwitch();
   }
 
   async function handleCreated(id: string): Promise<void> {
@@ -286,24 +328,23 @@
     }
   }
 
-  async function handleDelete(): Promise<void> {
-    const id = selectedId;
-    if (!id) return;
-    if (!window.confirm("Delete this snapshot? Scanned files are not touched.")) return;
-    try {
-      await deleteScan(id);
+  async function handleScansChanged(): Promise<void> {
+    await loadScans();
+    if (!selectedId) return;
+    if (scans.some((scan) => scan.id === selectedId)) return;
+    const newest = scans
+      .filter((scan) => scan.state === "completed")
+      .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs))[0];
+    if (newest) {
+      await selectScan(newest.id);
+    } else {
       selectedId = null;
       scopeId = 0;
-      await loadScans();
-      const newest = scans.find((scan) => scan.state === "completed");
-      if (newest) await selectScan(newest.id);
-    } catch (cause) {
-      error = errorMessage(cause);
+      scopePath = [];
     }
   }
 
   function openLauncher(): void {
-    view = "dashboard";
     launcherOpen = true;
   }
 
@@ -315,8 +356,8 @@
   /** Open a drive's snapshot from the dashboard. */
   async function openScan(id: string): Promise<void> {
     if (id.length === 0) return;
-    await selectScan(id);
     view = "treemap";
+    await selectScan(id);
   }
 
   async function loadTiles(
@@ -343,13 +384,16 @@
       if (seq !== tilesSeq) return;
       error = errorMessage(cause);
     } finally {
-      if (seq === tilesSeq) loading = false;
+      if (seq !== tilesSeq) return;
+      loading = false;
+      endSwitch();
     }
   }
 
   async function loadChildren(scanId: string, scope: number): Promise<void> {
     const seq = childrenSeq + 1;
     childrenSeq = seq;
+    childBusy = true;
     try {
       const response = await getChildren(scanId, scope, { sort: "size", limit: 1000 });
       if (seq !== childrenSeq) return;
@@ -357,6 +401,8 @@
     } catch (cause) {
       if (seq !== childrenSeq) return;
       error = errorMessage(cause);
+    } finally {
+      if (seq === childrenSeq) childBusy = false;
     }
   }
 
@@ -407,17 +453,21 @@
   function pushScope(id: number, name: string): void {
     scopePath = [...scopePath, { id, name }];
     scopeId = id;
+    extGroup = null;
   }
 
   async function openTile(tile: Tile): Promise<void> {
     const scanId = selectedId;
     if (!scanId) return;
+    tileBusy = true;
     try {
       const response = await getChildren(scanId, tile.node, { limit: 1, sort: "name" });
       if (response.total === 0) return;
       pushScope(tile.node, tile.name);
     } catch (cause) {
       error = errorMessage(cause);
+    } finally {
+      tileBusy = false;
     }
   }
 
@@ -435,12 +485,15 @@
     }
     const scanId = selectedId;
     if (!scanId) return;
+    tileBusy = true;
     try {
       const response = await getChildren(scanId, node.id, { limit: 1, sort: "name" });
       if (response.total === 0) return;
       pushScope(node.id, node.name);
     } catch (cause) {
       error = errorMessage(cause);
+    } finally {
+      tileBusy = false;
     }
   }
 
@@ -449,56 +502,41 @@
     if (!target) return;
     scopePath = scopePath.slice(0, index + 1);
     scopeId = target.id;
+    extGroup = null;
   }
 
-  function handleScanChange(event: Event): void {
-    const value = (event.currentTarget as HTMLSelectElement).value;
-    if (value.length > 0) void selectScan(value);
-  }
-
-  async function handleGc(): Promise<void> {
-    if (!window.confirm("Delete all but the 3 most recent snapshots?")) return;
-    gcBusy = true;
-    gcMessage = null;
-    error = null;
-    try {
-      const result = await runGc(3);
-      gcMessage = `removed ${result.removed.length}`;
-      await loadScans();
-      if (selectedId && !scans.some((scan) => scan.id === selectedId)) {
-        const completed = scans
-          .filter((scan) => scan.state === "completed")
-          .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs));
-        const newest = completed[0];
-        if (newest) {
-          await selectScan(newest.id);
-        } else {
-          selectedId = null;
-        }
-      }
-    } catch (cause) {
-      error = errorMessage(cause);
-    } finally {
-      gcBusy = false;
-    }
+  async function openManagedScan(id: string): Promise<void> {
+    view = "treemap";
+    await selectScan(id);
   }
 
   onMount(() => {
     void (async () => {
+      // Arm the fallback for the initial veil: a hung API must never leave the
+      // shell covered with no way to reach the launcher.
+      beginSwitch();
       try {
         health = await getHealth();
       } catch (cause) {
         healthError = errorMessage(cause);
       }
-      void loadDrives();
-      await loadScans();
-      const completed = scans
-        .filter((scan) => scan.state === "completed")
-        .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs));
-      const newest = completed[0];
-      if (newest) await selectScan(newest.id);
-      // Nothing scann yet: the dashboard is empty, so offer the launcher.
-      if (!newest) launcherOpen = true;
+      try {
+        void loadDrives();
+        await loadScans();
+        const completed = scans
+          .filter((scan) => scan.state === "completed")
+          .sort((a, b) => (b.finishedAtMs ?? b.startedAtMs) - (a.finishedAtMs ?? a.startedAtMs));
+        const newest = completed[0];
+        if (newest) await selectScan(newest.id);
+        // Nothing scann yet: the dashboard is empty, so offer the launcher.
+        if (!newest) launcherOpen = true;
+        // The treemap drops the veil once its tiles arrive; every other case has
+        // nothing left to wait for.
+        if (view !== "treemap" || !newest) endSwitch();
+      } catch (cause) {
+        error = errorMessage(cause);
+        endSwitch();
+      }
     })();
   });
 
@@ -543,7 +581,8 @@
       active === "docker" ||
       active === "duplicates" ||
       active === "diff" ||
-      active === "schedules"
+      active === "schedules" ||
+      active === "settings"
     )
       return;
     void loadViewData();
@@ -566,71 +605,66 @@
 <div class="shell">
   <header>
     <div class="brand">
-      <span class="logo">▚</span>
-      <h1>scanscan</h1>
+      <Logo size={30} />
+      <div class="brand-text">
+        <h1>Scanscan</h1>
+        <span class="tagline">disk analyzer</span>
+      </div>
     </div>
     <div class="controls">
-      {#if scans.length > 0}
-        <select value={selectedId ?? ""} onchange={handleScanChange} aria-label="Scan">
-          <option value="" disabled>Select scan</option>
-          {#each scans as scan (scan.id)}
-            <option value={scan.id}>{scan.roots.join(", ")} · {scan.state}</option>
-          {/each}
-        </select>
-      {/if}
-      <button type="button" class="action" onclick={openLauncher}>+ New scan</button>
-      {#if selectedId}
-        <button type="button" class="action" onclick={handleDelete}>Delete</button>
-      {/if}
+      <ScanSwitcher
+        {scans}
+        {selectedId}
+        {drives}
+        disabled={swhitching}
+        onselect={(id) => void selectScan(id)}
+      />
+      <button type="button" class="action primary" onclick={openLauncher}>
+        <Icon name="plus" size={14} />
+        New scan
+      </button>
       <div class="toggle" role="group" aria-label="Color mode">
         <button type="button" class:active={colorMode === "size"} onclick={() => (colorMode = "size")}>
+          <Icon name="pie-chart" size={13} />
           Size
         </button>
         <button type="button" class:active={colorMode === "ext"} onclick={() => (colorMode = "ext")}>
+          <Icon name="file" size={13} />
           Extension
         </button>
       </div>
       <button
         type="button"
         class="action"
-        class:active={searchOpen}
-        disabled={!selectedId}
-        onclick={() => (searchOpen = !searchOpen)}
+        class:active={view === "settings"}
+        aria-current={view === "settings" ? "page" : undefined}
+        onclick={() => (view = "settings")}
       >
-        Search
+        <Icon name="settings" size={14} />
+        Settings
       </button>
-      {#if selectedId}
-        <a class="action" href={exportUrl(selectedId, "csv", scopeId)} download>Export</a>
-      {/if}
-      {#if hasCompleted}
-        <button type="button" class="action" disabled={gcBusy} onclick={() => void handleGc()}>
-          {gcBusy ? "GC…" : "GC"}
-        </button>
-      {/if}
-      <div class="status">
-        {#if gcMessage}
-          <span class="pill ok">{gcMessage}</span>
-        {/if}
-        {#if healthError}
-          <span class="pill err" title={healthError}>API unreachable</span>
-        {:else if health}
-          <span class="pill ok">API {health.status}</span>
-          <span class="pill" class:ok={health.core.connected} class:muted={!health.core.connected}>
-            core {health.core.connected ? "connected" : "idle"}
-          </span>
-        {:else}
-          <span class="pill muted">connecting…</span>
-        {/if}
-      </div>
     </div>
   </header>
 
   <nav class="views" aria-label="Views">
-    {#each VIEWS as entry (entry.id)}
-      <button type="button" class:active={view === entry.id} onclick={() => (view = entry.id)}>
-        {entry.label}
-      </button>
-    {/each}
+    <div class="tabs">
+      {#each VIEWS as entry (entry.id)}
+        <button type="button" class:active={view === entry.id} onclick={() => (view = entry.id)}>
+          {entry.label}
+        </button>
+      {/each}
+    </div>
+    <button
+      type="button"
+      class="search-toggle"
+      class:active={searchOpen}
+      disabled={!selectedId}
+      aria-pressed={searchOpen}
+      onclick={() => (searchOpen = !searchOpen)}
+    >
+      <Icon name="search" size={14} />
+      Search
+    </button>
   </nav>
 
   {#if searchOpen && selectedId}
@@ -645,17 +679,6 @@
 
   {#if view === "dashboard"}
     <main class="dash">
-      {#if launcherOpen}
-        <section class="panel">
-          <div class="panel-head">
-            <h2>New scan</h2>
-            <button type="button" class="link" onclick={() => (launcherOpen = false)}>Close</button>
-          </div>
-          <div class="launcher-host">
-            <ScanLauncher oncreated={handleLauncherCreated} />
-          </div>
-        </section>
-      {/if}
       <section class="panel">
         <div class="panel-head">
           <h2>Drives</h2>
@@ -675,6 +698,18 @@
           />
         </div>
       </section>
+    </main>
+  {:else if view === "settings"}
+    <main class="settings-main">
+      <SettingsPanel
+        {scans}
+        {selectedId}
+        {drives}
+        {health}
+        {healthError}
+        onopen={openManagedScan}
+        onchanged={handleScansChanged}
+      />
     </main>
   {:else if view === "docker"}
     <main class="solo">
@@ -729,7 +764,15 @@
     </main>
   {:else if !selectedId}
     <main class="empty-main">
-      <ScanLauncher oncreated={handleCreated} />
+      <section class="empty-card">
+        <Logo size={46} />
+        <h2>No snapshot selected</h2>
+        <p>Start a read-only scan to explore disk usage on this host.</p>
+        <button type="button" class="action primary" onclick={openLauncher}>
+          <Icon name="plus" size={14} />
+          New scan
+        </button>
+      </section>
     </main>
   {:else}
     <main>
@@ -739,12 +782,21 @@
             <Breadcrumb path={scopePath} onnavigate={navigate} />
           </div>
           <DriveStats drive={activeDrive} />
+          {#if loading || tileBusy}
+            <span class="busy" role="status" aria-label="Loading view">
+              <Spinner size={12} label="Loading view" />
+              <span>Loading…</span>
+            </span>
+          {/if}
           <span class="muted">{viewSummary}</span>
         </div>
-        <div class="view-host" bind:this={treemapHost}>
+        <div class="view-host" class:stacked={view === "extensions"} bind:this={treemapHost}>
           {#if view === "treemap"}
             {#if loading && tiles.length === 0}
-              <p class="state">Loading tiles…</p>
+              <p class="state" role="status" aria-label="Loading tiles">
+                <Spinner size={16} label="Loading tiles" />
+                <span>Loading tiles…</span>
+              </p>
             {:else if error}
               <p class="state err">{error}</p>
             {:else if tiles.length === 0}
@@ -754,7 +806,10 @@
             {/if}
           {:else if isHierarchyView}
             {#if viewLoading}
-              <p class="state">Loading hierarchy…</p>
+              <p class="state" role="status" aria-label="Loading hierarchy">
+                <Spinner size={16} label="Loading hierarchy" />
+                <span>Loading hierarchy…</span>
+              </p>
             {:else if viewError}
               <p class="state err">{viewError}</p>
             {:else if tree}
@@ -774,7 +829,10 @@
             {/if}
           {:else if view === "bars"}
             {#if viewLoading}
-              <p class="state">Loading…</p>
+              <p class="state" role="status" aria-label="Loading nodes">
+                <Spinner size={16} label="Loading nodes" />
+                <span>Loading nodes…</span>
+              </p>
             {:else if viewError}
               <p class="state err">{viewError}</p>
             {:else if topNodes.length === 0}
@@ -784,7 +842,10 @@
             {/if}
           {:else if view === "heatmap"}
             {#if viewLoading}
-              <p class="state">Loading…</p>
+              <p class="state" role="status" aria-label="Loading heatmap">
+                <Spinner size={16} label="Loading heatmap" />
+                <span>Loading heatmap…</span>
+              </p>
             {:else if viewError}
               <p class="state err">{viewError}</p>
             {:else if heatmapData}
@@ -794,7 +855,10 @@
             {/if}
           {:else if view === "histogram"}
             {#if viewLoading}
-              <p class="state">Loading…</p>
+              <p class="state" role="status" aria-label="Loading histogram">
+                <Spinner size={16} label="Loading histogram" />
+                <span>Loading histogram…</span>
+              </p>
             {:else if viewError}
               <p class="state err">{viewError}</p>
             {:else if histogram.length === 0}
@@ -802,9 +866,34 @@
             {:else}
               <Histogram items={histogram} />
             {/if}
+          {:else if view === "extensions"}
+            {#if viewLoading}
+              <p class="state" role="status" aria-label="Loading breakdown">
+                <Spinner size={16} label="Loading breakdown" />
+                <span>Loading breakdown…</span>
+              </p>
+            {:else if viewError}
+              <p class="state err">{viewError}</p>
+            {:else if histogram.length === 0}
+              <p class="state">No data in {scopeLabel}.</p>
+            {:else}
+              <FileTypes
+                items={histogram}
+                selected={extGroup}
+                onselect={(group) => (extGroup = group)}
+              />
+              {#if extItems.length === 0}
+                <p class="state">No files of this type in {scopeLabel}.</p>
+              {:else}
+                <Breakdown items={extItems} title={breakdownTitle} />
+              {/if}
+            {/if}
           {:else}
             {#if viewLoading}
-              <p class="state">Loading…</p>
+              <p class="state" role="status" aria-label="Loading breakdown">
+                <Spinner size={16} label="Loading breakdown" />
+                <span>Loading breakdown…</span>
+              </p>
             {:else if viewError}
               <p class="state err">{viewError}</p>
             {:else if histogram.length === 0}
@@ -820,6 +909,9 @@
         <div class="panel-head">
           <h2>Tree</h2>
           <span class="muted">{childTotal.toLocaleString()} items in scope</span>
+          {#if childBusy}
+            <Spinner size={12} label="Loading items in scope" />
+          {/if}
         </div>
         <RankedTable
           scanId={selectedId}
@@ -837,6 +929,25 @@
     <span class="muted">read-only · no telemetry</span>
   </footer>
 
+  {#if swhitching}
+    <div class="overlay" role="status" aria-label="Loading snapshot">
+      <div class="overlay-card">
+        <Spinner size={26} label="Loading snapshot" />
+        <span>Loading snapshot…</span>
+      </div>
+    </div>
+  {/if}
+
+  {#if launcherOpen}
+    <Modal
+      title="New scan"
+      subtitle="Read-only scan of a host filesystem"
+      onclose={() => (launcherOpen = false)}
+    >
+      <ScanLauncher oncreated={handleLauncherCreated} />
+    </Modal>
+  {/if}
+
   <ScanProgressPanel onfinished={handleScanFinished} />
 </div>
 
@@ -852,61 +963,73 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0.75rem 1rem;
+    padding: 0.65rem 1rem;
     border-bottom: 1px solid var(--border);
-    background: var(--panel);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel) 82%, var(--accent) 18%),
+      var(--panel)
+    );
   }
 
   .brand {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
+    min-width: 0;
   }
 
-  .logo {
-    color: var(--accent);
-    font-size: 1.25rem;
+  .brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
   }
 
   h1 {
     margin: 0;
-    font-size: 1rem;
-    letter-spacing: 0.02em;
+    font-size: 1.05rem;
+    letter-spacing: 0.01em;
+  }
+
+  .tagline {
+    color: var(--muted);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   .controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: flex-end;
+    gap: 0.5rem;
     min-width: 0;
-  }
-
-  select {
-    max-width: 18rem;
-    padding: 0.3rem 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--panel-2);
-    color: var(--text);
-    font: inherit;
-    font-size: 0.8rem;
   }
 
   .toggle {
     display: inline-flex;
     overflow: hidden;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 7px;
+    background: var(--panel-2);
   }
 
   .toggle button {
-    padding: 0.3rem 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.35rem 0.6rem;
     border: none;
     background: none;
     color: var(--muted);
     font: inherit;
-    font-size: 0.75rem;
+    font-size: 0.73rem;
     cursor: pointer;
+  }
+
+  .toggle button:hover {
+    color: var(--text);
   }
 
   .toggle button.active {
@@ -915,18 +1038,21 @@
   }
 
   .action {
-    padding: 0.3rem 0.7rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    padding: 0.35rem 0.7rem;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 7px;
     background: none;
     color: var(--text);
     font: inherit;
-    font-size: 0.75rem;
+    font-size: 0.74rem;
     text-decoration: none;
     cursor: pointer;
   }
 
-  .action:hover {
+  .action:hover:not(:disabled) {
     border-color: var(--accent);
   }
 
@@ -935,48 +1061,49 @@
     color: var(--accent);
   }
 
+  .action.primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #0b0e14;
+    font-weight: 600;
+  }
+
+  .action.primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
   .action:disabled {
     opacity: 0.5;
     cursor: default;
   }
 
-  .status {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .pill {
-    padding: 0.2rem 0.55rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    font-size: 0.75rem;
-  }
-
-  .pill.ok {
-    color: var(--ok);
-    border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-  }
-
-  .pill.err {
-    color: var(--err);
-    border-color: color-mix(in srgb, var(--err) 40%, transparent);
-  }
-
-  .pill.muted,
   .muted {
     color: var(--muted);
   }
 
   .views {
     display: flex;
-    gap: 0.25rem;
+    align-items: center;
+    gap: 0.5rem;
     padding: 0.4rem 1rem;
-    overflow-x: auto;
     border-bottom: 1px solid var(--border);
     background: var(--panel);
   }
 
-  .views button {
+  .tabs {
+    display: flex;
+    flex: 1;
+    gap: 0.25rem;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .tabs button,
+  .search-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
     padding: 0.3rem 0.7rem;
     border: 1px solid transparent;
     border-radius: 999px;
@@ -988,15 +1115,27 @@
     cursor: pointer;
   }
 
-  .views button:hover {
+  .tabs button:hover,
+  .search-toggle:hover:not(:disabled) {
     color: var(--text);
     background: var(--panel-2);
   }
 
-  .views button.active {
+  .tabs button.active,
+  .search-toggle.active {
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
     background: color-mix(in srgb, var(--accent) 18%, transparent);
     color: var(--text);
+  }
+
+  .search-toggle {
+    flex: none;
+    border-color: var(--border);
+  }
+
+  .search-toggle:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .search-drawer {
@@ -1034,6 +1173,39 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  main.settings-main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .empty-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    width: min(28rem, 90vw);
+    padding: 2rem 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel);
+    text-align: center;
+  }
+
+  .empty-card h2 {
+    margin: 0;
+    font-size: 1.05rem;
+  }
+
+  .empty-card p {
+    margin: 0 0 0.4rem;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
   }
 
   .panel {
@@ -1084,16 +1256,6 @@
     overflow: hidden;
   }
 
-  .launcher-host {
-    display: flex;
-    flex: 1;
-    align-items: flex-start;
-    justify-content: center;
-    min-height: 0;
-    padding: 1rem;
-    overflow: auto;
-  }
-
   .view-host {
     position: relative;
     display: flex;
@@ -1102,7 +1264,15 @@
     overflow: hidden;
   }
 
+  .view-host.stacked {
+    flex-direction: column;
+  }
+
   .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
     margin: auto;
     padding: 1rem;
     color: var(--muted);
@@ -1110,6 +1280,41 @@
 
   .state.err {
     color: var(--err);
+  }
+
+  .busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
+  }
+
+  .overlay-card {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.9rem 1.2rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 0.85rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   }
 
   footer {

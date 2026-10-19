@@ -13,10 +13,11 @@ JSON-first, read-only. Every command accepts `--json` and writes one JSON object
 | `scanscan top [path]` | Largest entries | `-n N`, `--kind file\|dir`, `--metric alloc\|apparent\|items` |
 | `scanscan find [path]` | Filtered search | `--size`, `--mtime`, `--ext`, `--owner`, `--dupe` |
 | `scanscan tree [path]` | Print hierarchy | `--depth N` |
+| `scanscan tui [path]` | Browse children in the terminal | `--limit N`, `--metric alloc\|apparent\|items`, `--sort size\|name\|mtime` |
 | `scanscan ext [path]` | Extension breakdown | — |
 | `scanscan diff <a> <b>` | Compare two snapshots by path | — |
 | `scanscan docker` | Containers, sizes, mounts | `--stats` |
-| `scanscan export <snap>` | Export a snapshot | `--format csv\|json\|parquet` |
+| `scanscan export <snap>` | Export a snapshot | `--format csv\|json` |
 | `scanscan snapshots` | List/delete/GC snapshots | `list`, `delete <id>`, `gc --keep N` |
 | `scanscan config` | Get/set configuration | `get`, `set <key> <value>` |
 
@@ -27,6 +28,28 @@ JSON-first, read-only. Every command accepts `--json` and writes one JSON object
 - **apparent** (`size_app`) — logical file size (`st_size`).
 
 Hardlinked files are counted once for the allocated total. Sparse files report both metrics.
+
+## Terminal view
+
+`scanscan tui [path]` renders the children of a path as sized bars and reads one line command at
+a time, so it works over SSH, in a pipe and on terminals with no termios layer. An empty line
+pages down; a bare number opens that child.
+
+```
+<enter> | j   page down        k        page up
+u | ..        go to the parent g        go to the snapshot root
+o | <n>       open child n     s        cycle the sort order
+m             cycle the metric + | -    wider / narrower bars
+q             quit
+```
+
+`--json` emits one page of the view as JSON and exits, for scripting.
+
+## Export
+
+`scanscan export <snap> --format json` writes every node as JSON; `--format csv` writes
+`id,parent,name,kind,sizeAlloc,sizeApparent,subtreeSize,mtimeMs` with quoted names. Parquet is
+not written yet: it needs a Parquet writer crate that resolves at build time.
 
 ## HTTP API (v1)
 

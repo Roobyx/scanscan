@@ -8,6 +8,8 @@
   import { copyText } from "../lib/clipboard.js";
   import { formatBytes } from "../lib/format.js";
 
+  import Spinner from "./Spinner.svelte";
+
   interface Props {
     scanId: string;
     scope: number;
@@ -83,13 +85,22 @@
         name+size+mtime
       </button>
     </div>
+    {#if loading && groups.length > 0}
+      <span class="busy" role="status" aria-label="Scanning for duplicates">
+        <Spinner size={12} label="Scanning for duplicates" />
+        <span>Scanning…</span>
+      </span>
+    {/if}
     <span class="muted summary">
       {groups.length.toLocaleString()} groups · {formatBytes(totalWasted)} wasted
     </span>
   </div>
 
   {#if loading && groups.length === 0}
-    <p class="state">Scanning for duplicates…</p>
+    <p class="state" role="status" aria-label="Scanning for duplicates">
+      <Spinner size={16} label="Scanning for duplicates" />
+      <span>Scanning for duplicates…</span>
+    </p>
   {:else if error}
     <p class="state err" role="alert">{error}</p>
   {:else if groups.length === 0}
@@ -295,6 +306,10 @@
   }
 
   .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
     margin: 2rem auto;
     color: var(--muted);
     text-align: center;
@@ -302,6 +317,15 @@
 
   .state.err {
     color: var(--err);
+  }
+
+  .busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
   }
 
   .muted {

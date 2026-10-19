@@ -12,11 +12,13 @@ use serde_json::json;
 
 use scanscan_core::daemon::{serve, Daemon};
 use scanscan_core::docker::DockerCollector;
-use scanscan_core::index::{IndexReader, Kind};
+use scanscan_core::index::{IndexReader, Kind, NO_PARENT};
 use scanscan_core::query::{FindFilters, Metric, NodeView, QueryEngine, SortBy};
 use scanscan_core::store::Store;
 use scanscan_core::{Config as CoreConfig, CORE_VERSION};
 use scanscan_ipc::{ScanOptions, ScanState, PROTOCOL_VERSION};
+
+pub mod tui;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -117,6 +119,16 @@ enum Command {
         path: Option<String>,
         #[arg(long)]
         depth: Option<u32>,
+    },
+    /// Interactively browse the children of a path in the terminal.
+    Tui {
+        path: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        metric: Option<String>,
+        #[arg(long)]
+        sort: Option<String>,
     },
     /// Extension breakdown.
     Ext { path: Option<String> },
@@ -240,6 +252,19 @@ fn main() -> ExitCode {
         ),
         Command::Ext { path } => cmd_ext(json, &cli, path.as_deref()),
         Command::Tree { path, depth } => cmd_tree(json, &cli, path.as_deref(), depth.unwrap_or(2)),
+        Command::Tui {
+            path,
+            limit,
+            metric,
+            sort,
+        } => cmd_tui(
+            json,
+            &cli,
+            path.as_deref(),
+            limit.unwrap_or(40),
+            metric.as_deref().unwrap_or("alloc"),
+            sort.as_deref().unwrap_or("size"),
+        ),
         Command::Docker { stats } => cmd_docker(json, *stats),
         Command::Diff { a, b } => cmd_diff(json, &cli, a, b),
         Command::Export { snapshot, format } => cmd_export(json, &cli, snapshot, format),
@@ -637,14 +662,17 @@ fn cmd_export(json: bool, cli: &Cli, snapshot: &str, format: &str) -> anyhow::Re
     let store = open_store(cli)?;
     let reader = store.open(snapshot)?;
     let engine = QueryEngine::new(&reader);
-    let mut rows = Vec::new();
-    for id in 0..reader.len() {
-        if let Some(node) = engine.node(id) {
-            rows.push(node.to_record());
-        }
-    }
     match format {
+        // CSV is written row by row: only the output buffer is held, not a copy
+        // of every node as well.
+        "csv" => println!("{}", export_csv(&engine, &reader)),
         "json" => {
+            let mut rows: Vec<_> = Vec::new();
+            for id in 0..reader.len() {
+                if let Some(node) = engine.node(id) {
+                    rows.push(node.to_record());
+                }
+            }
             let value = json!({ "snapshot": snapshot, "nodes": rows });
             if json {
                 println!("{}", serde_json::to_string(&value)?);
@@ -652,9 +680,309 @@ fn cmd_export(json: bool, cli: &Cli, snapshot: &str, format: &str) -> anyhow::Re
                 println!("{}", serde_json::to_string_pretty(&value)?);
             }
         }
-        other => anyhow::bail!("export format '{other}' is not supported yet (use json)"),
+        other => anyhow::bail!(
+            "export format '{other}' is not supported (use json or csv; parquet needs a parquet crate that resolves at build time)"
+        ),
     }
     Ok(())
+}
+
+fn export_csv(engine: &QueryEngine<'_>, reader: &IndexReader) -> String {
+    let mut out = String::new();
+    out.push_str("id,parent,name,kind,sizeAlloc,sizeApparent,subtreeSize,mtimeMs\n");
+    for id in 0..reader.len() {
+        if let Some(node) = engine.node(id) {
+            out.push_str(&format!(
+                "{},{},{},{},{},{},{},{}\n",
+                node.id,
+                node.parent.map(|p| format!("{p}")).unwrap_or_default(),
+                csv_escape(node.name.as_str()),
+                node.kind.as_str(),
+                node.size_alloc,
+                node.size_apparent,
+                node.subtree_size,
+                node.mtime_ms,
+            ));
+        }
+    }
+    out
+}
+
+fn csv_escape(value: &str) -> String {
+    let mut out = String::new();
+    out.push_str("\"");
+    let mut first = true;
+    for c in value.chars() {
+        // A cell that starts with one of these is evaluated as a formula by
+        // spredsheet apps, so neutralize it before it leaves the process.
+        if first && (c == '=' || c == '+' || c == '-' || c == '@' || c == '\t' || c == '\r') {
+            out.push('\'');
+        }
+        first = false;
+        if c == '"' {
+            out.push_str("\"\"");
+        } else {
+            out.push(c);
+        }
+    }
+    out.push_str("\"");
+    out
+}
+
+fn cmd_tui(
+    json: bool,
+    cli: &Cli,
+    path: Option<&str>,
+    limit: usize,
+    metric: &str,
+    sort: &str,
+) -> anyhow::Result<()> {
+    use std::io::{BufRead, BufReader};
+
+    let store = open_store(cli)?;
+    let id = resolve_snapshot(cli, &store)?;
+    let reader = store.open(&id)?;
+    let engine = QueryEngine::new(&reader);
+    let mut scope = resolve_scope(&reader, path)?;
+    let mut metric = Metric::parse(metric);
+    let mut sort = SortBy::parse(sort);
+    let mut limit = limit;
+    let mut offset = 0usize;
+    let mut selected = 0usize;
+    // The whole child list is fetched once per scope and reordered in memory, so
+    // a keystroke never re-walks the subtrees just to rank one page.
+    let mut children = ordered_children(&engine, scope, sort);
+    let mut cached_scope = scope;
+    let mut cached_sort = sort;
+    let mut rows = page_of(&children, limit, offset);
+
+    if json {
+        let records: Vec<_> = rows.iter().map(NodeView::to_record).collect();
+        let value = json!({ "scope": scope, "items": records });
+        println!("{}", serde_json::to_string(&value)?);
+        return Ok(());
+    }
+
+    render_tui(&reader, id.as_str(), scope, &children, &rows, metric, selected);
+
+    let mut input = BufReader::new(std::io::stdin());
+    for line in input.lines() {
+        let Ok(line) = line else {
+            break;
+        };
+        match tui::parse_nav(line) {
+            tui::Nav::Quit => break,
+            tui::Nav::Parent => {
+                scope = parent_of(&reader, scope);
+                offset = 0;
+                selected = 0;
+            }
+            tui::Nav::Root => {
+                scope = 0;
+                offset = 0;
+                selected = 0;
+            }
+            tui::Nav::Open => {
+                if let Some(child) = child_scope(&rows, selected) {
+                    scope = child;
+                    offset = 0;
+                    selected = 0;
+                }
+            }
+            tui::Nav::Select(n) => {
+                if n > 0 && n <= rows.len() {
+                    let index = n - 1;
+                    if let Some(child) = child_scope(&rows, index) {
+                        scope = child;
+                        offset = 0;
+                        selected = 0;
+                    } else {
+                        selected = index;
+                    }
+                }
+            }
+            tui::Nav::PageDown => {
+                offset += limit;
+            }
+            tui::Nav::PageUp => {
+                if offset > limit {
+                    offset -= limit;
+                } else {
+                    offset = 0;
+                }
+            }
+            tui::Nav::Sort => {
+                sort = next_sort(sort);
+                offset = 0;
+            }
+            tui::Nav::Metric => {
+                metric = next_metric(metric);
+            }
+            tui::Nav::Widen => {
+                limit += 20;
+            }
+            tui::Nav::Narrow => {
+                if limit > 20 {
+                    limit -= 20;
+                }
+            }
+            tui::Nav::Unnown => {}
+        }
+        if scope != cached_scope || sort != cached_sort {
+            children = ordered_children(&engine, scope, sort);
+            cached_scope = scope;
+            cached_sort = sort;
+        }
+        rows = page_of(&children, limit, offset);
+        render_tui(&reader, id.as_str(), scope, &children, &rows, metric, selected);
+    }
+    Ok(())
+}
+
+/// Every direct child of `scope`, ranked by `sort`.
+fn ordered_children(engine: &QueryEngine<'_>, scope: u32, sort: SortBy) -> Vec<NodeView> {
+    // Size order first: it is the only order that fills a directory's subtree
+    // bytes, which the bars and the metrics need. The list is fetched whole so a
+    // page can be sliced without walking the subtrees again.
+    let (_, mut rows) = engine.children(scope, SortBy::Size, 1000000000usize, 0);
+    match sort {
+        SortBy::Name => {
+            rows.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+        SortBy::Mtime => {
+            rows.sort_by(|a, b| b.mtime_ms.cmp(&a.mtime_ms));
+        }
+        SortBy::Size => {}
+    }
+    rows
+}
+
+/// One page of an already ordered child list.
+fn page_of(all: &Vec<NodeView>, limit: usize, offset: usize) -> Vec<NodeView> {
+    let mut page: Vec<NodeView> = Vec::new();
+    let mut index = offset;
+    while index < all.len() && page.len() < limit {
+        if let Some(row) = all.get(index) {
+            page.push(row.clone());
+        }
+        index += 1;
+    }
+    page
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_tui(
+    reader: &IndexReader,
+    snapshot: &str,
+    scope: u32,
+    all: &Vec<NodeView>,
+    rows: &Vec<NodeView>,
+    metric: Metric,
+    selected: usize,
+) {
+    let mut max = 0u64;
+    let mut display: Vec<tui::Row> = Vec::new();
+    for row in rows.iter() {
+        let value = value_of(row, metric);
+        if value > max {
+            max = value;
+        }
+        display.push(tui::Row {
+            label: row.name.clone(),
+            value,
+            detail: row.kind.as_str().to_string(),
+        });
+    }
+
+    let crumb = path_of(reader, scope);
+    let header = format!("scanscan tui · {snapshot}");
+    let footer = format!(
+        "{} children · {} shown · j/k page · u up · g root · <n> open · s sort · m metric · q quit",
+        all.len(),
+        rows.len(),
+    );
+    println!(
+        "{}",
+        tui::frame(
+            header.as_str(),
+            crumb.as_str(),
+            &display,
+            max,
+            24,
+            selected,
+            footer.as_str(),
+        )
+    );
+}
+
+fn value_of(node: &NodeView, metric: Metric) -> u64 {
+    match metric {
+        Metric::Apparent => node.size_apparent,
+        Metric::Items => u64::from(node.subtree_size),
+        Metric::Alloc => node.size_alloc,
+    }
+}
+
+fn child_scope(rows: &Vec<NodeView>, index: usize) -> Option<u32> {
+    rows.get(index).and_then(|row| {
+        if row.kind == Kind::Directory {
+            Some(row.id)
+        } else {
+            None
+        }
+    })
+}
+
+fn parent_of(reader: &IndexReader, scope: u32) -> u32 {
+    let parent = reader
+        .record(scope)
+        .map(|rec| rec.parent)
+        .unwrap_or(NO_PARENT);
+    if parent == NO_PARENT {
+        0
+    } else {
+        parent
+    }
+}
+
+fn path_of(reader: &IndexReader, scope: u32) -> String {
+    let mut crumb = String::new();
+    let mut current = scope;
+    loop {
+        let Some(rec) = reader.record(current) else {
+            break;
+        };
+        if rec.parent == NO_PARENT {
+            break;
+        }
+        let mut next = String::new();
+        next.push('/');
+        next.push_str(reader.name(current));
+        next.push_str(crumb.as_str());
+        crumb = next;
+        current = rec.parent;
+    }
+    if crumb.is_empty() {
+        "/".to_string()
+    } else {
+        crumb
+    }
+}
+
+fn next_sort(sort: SortBy) -> SortBy {
+    match sort {
+        SortBy::Size => SortBy::Name,
+        SortBy::Name => SortBy::Mtime,
+        SortBy::Mtime => SortBy::Size,
+    }
+}
+
+fn next_metric(metric: Metric) -> Metric {
+    match metric {
+        Metric::Alloc => Metric::Apparent,
+        Metric::Apparent => Metric::Items,
+        Metric::Items => Metric::Alloc,
+    }
 }
 
 fn cmd_snapshots_list(json: bool, cli: &Cli) -> anyhow::Result<()> {
@@ -812,20 +1140,30 @@ fn print_human(value: &serde_json::Value) {
             let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let size = item.get("sizeAlloc").and_then(|v| v.as_u64()).unwrap_or(0);
             let kind = item.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-            println!("{:>14}  {:<10}  {}", human_size(size), kind, name);
+            println!("{:>14}  {:<10}  {}", tui::human_size(size), kind, name);
         }
         return;
     }
     println!("{}", serde_json::to_string_pretty(value).unwrap_or_default());
 }
 
-fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_escape_quotes_every_field() {
+        assert_eq!(csv_escape("plain").as_str(), "\"plain\"");
+        assert_eq!(csv_escape("a,b").as_str(), "\"a,b\"");
+        assert_eq!(csv_escape("").as_str(), "\"\"");
     }
-    format!("{value:.1} {}", UNITS[unit])
+
+    #[test]
+    fn csv_escape_neutralizes_formulas() {
+        assert_eq!(csv_escape("=1+1").as_str(), "\"'=1+1\"");
+        assert_eq!(csv_escape("+1").as_str(), "\"'+1\"");
+        assert_eq!(csv_escape("-1").as_str(), "\"'-1\"");
+        assert_eq!(csv_escape("@1").as_str(), "\"'@1\"");
+        assert_eq!(csv_escape("a=1").as_str(), "\"a=1\"");
+    }
 }

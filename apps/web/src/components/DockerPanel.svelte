@@ -20,6 +20,8 @@
   } from "../lib/api.js";
   import { formatBytes, percent } from "../lib/format.js";
 
+  import Spinner from "./Spinner.svelte";
+
   interface Props {
     scanId?: string;
     onreveal?: (nodeId: number) => void;
@@ -157,10 +159,20 @@
     {/if}
   </section>
 
+  {#if loading && !isEmpty}
+    <p class="busy" role="status" aria-label="Refreshing Docker">
+      <Spinner size={12} label="Refreshing Docker" />
+      <span>Refreshing Docker…</span>
+    </p>
+  {/if}
+
   {#if error}
     <p class="state err" role="alert">{error}</p>
   {:else if loading && isEmpty}
-    <p class="state">Loading Docker…</p>
+    <p class="state" role="status" aria-label="Loading Docker">
+      <Spinner size={16} label="Loading Docker" />
+      <span>Loading Docker…</span>
+    </p>
   {:else}
     <section class="block">
       <h3>Containers <span class="muted">{containers.length}</span></h3>
@@ -575,6 +587,10 @@
   }
 
   .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
     margin: 2rem auto;
     color: var(--muted);
     text-align: center;
@@ -583,6 +599,16 @@
   .state.err {
     color: var(--err);
   }
+
+  .busy {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0 0 0.75rem;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
   .locate {
     display: flex;
     gap: 0.5rem;

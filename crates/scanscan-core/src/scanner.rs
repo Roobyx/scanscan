@@ -6,9 +6,11 @@
 //! parallel; the walk itself is sequential so output order (and therefore the
 //! contiguous-subtree invariant) is deterministic.
 //!
-//! `LinuxFs` (statx) and fully parallel traversal (jwalk-style) are later
-//! optimisations; the portable implementation below is correct on every
-//! platform.
+//! `LinuxFs` is the fast path: a directory entry already carries the `statx`
+//! that `read_dir` obtained, so a directory costs one syscall instead of one
+//! `lstat` per entry. `PortableFs` is the portable fallback that stats every
+//! entry separately. Fully parallel traversal (jwalk-style) is a later
+//! optimisation.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -200,7 +202,50 @@ impl Filesystem for PortableFs {
     }
 }
 
+/// Fast path: the directory entry carries the `statx` that `read_dir` already
+/// obtained, so an entry needs no second `lstat` and a directory costs one
+/// syscall instead of one per entry.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LinuxFs;
+
+impl Filesystem for LinuxFs {
+    fn read_dir(&self, dir: &Path) -> Result<Vec<EntryMeta>> {
+        let mut metas: Vec<EntryMeta> = Vec::new();
+        for entry in std::fs::read_dir(dir)? {
+            match entry {
+                Ok(e) => {
+                    let path = e.path();
+                    metas.push(PortableFs::meta_for(&path, e.metadata()));
+                }
+                Err(e) => metas.push(EntryMeta::errored(
+                    &PathBuf::from(format!("{}/<unreadable:{e}>", dir.display())),
+                    e.to_string(),
+                )),
+            }
+        }
+        Ok(metas)
+    }
+
+    fn metadata(&self, path: &Path) -> Result<EntryMeta> {
+        let meta = std::fs::symlink_metadata(path)?;
+        Ok(PortableFs::meta_for(path, meta))
+    }
+
+    fn metadata_follow(&self, path: &Path) -> Result<EntryMeta> {
+        let meta = std::fs::metadata(path)?;
+        Ok(PortableFs::meta_for(path, meta))
+    }
+}
+
 /// Resolve the platform-appropriate filesystem implementation.
+#[cfg(unix)]
+pub fn platform_fs() -> Box<dyn Filesystem> {
+    Box::new(LinuxFs)
+}
+
+/// Without `statx` there is nothing to reuse, so the portable walker stats each
+/// entry itself.
+#[cfg(not(unix))]
 pub fn platform_fs() -> Box<dyn Filesystem> {
     Box::new(PortableFs)
 }
@@ -825,5 +870,44 @@ mod tests {
     fn missing_root_is_rejected() {
         let err = canonical_root("/definitely/not/here/scanscan").unwrap_err();
         assert!(matches!(err, CoreError::Config(_)));
+    }
+
+    fn scan_counts(fs: &dyn Filesystem) -> (u32, u64) {
+        let tmp = tempfile::tempdir().unwrap();
+        let snap_tmp = tempfile::tempdir().unwrap();
+        fixture(tmp.path());
+        let root = tmp.path().to_path_buf();
+        let snap = snap_tmp.path().join("snap");
+        let mut writer = IndexWriter::create(&snap).unwrap();
+        let options = ScanOptions::new(vec![root.to_string_lossy().into_owned()]);
+        let mut progress = |_: &Progress| {};
+        scan(
+            &mut writer,
+            std::slice::from_ref(&root),
+            &options,
+            fs,
+            &AtomicBool::new(false),
+            None,
+            &LabelIndex::new(),
+            &mut progress,
+        )
+        .unwrap();
+        let manifest = writer
+            .finish(ManifestSeed {
+                id: "t".into(),
+                parent_id: None,
+                roots: vec![root.to_string_lossy().into_owned()],
+                started_at_ms: 0,
+            })
+            .unwrap();
+        (manifest.node_count, manifest.stats.bytes_apparent)
+    }
+
+    #[test]
+    fn fast_path_matches_the_portable_walker() {
+        let (fast_nodes, fast_bytes) = scan_counts(&LinuxFs);
+        let (portable_nodes, portable_bytes) = scan_counts(&PortableFs);
+        assert_eq!(fast_nodes, portable_nodes);
+        assert_eq!(fast_bytes, portable_bytes);
     }
 }

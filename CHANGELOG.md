@@ -2,6 +2,48 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.15.0] - 2026-10-19
+
+### Added
+- **Linux fast path (`LinuxFs`).** A directory is now read in one syscall: the `statx` that the
+  directory entry already carries is reused instead of `lstat`-ing every entry a second time.
+  `PortableFs` remains the portable fallback, and a test asserts that both walkers produce the
+  same node count and apparent bytes on the same fixture.
+- **`scanscan tui [path]`** — an interective terminal view of the children of a path: sized bars,
+  a breadcrumb and a footer of keys. It reads one line command at a time (page down/up, parent,
+  root, open child, sort, metric, wider/narrower, quit), so it works over SSH, inside a pipe and
+  on terminals with no termios layer. `--json` emits one page and exits.
+- `scanscan export --format csv`, with the same columns and quoting as the server's CSV export.
+- **New scan modal and Settings page.** New scan now opens as an overlay. Settings holds the API and
+  core connection status plus a Scan management table for selecting, exporting, deleting and
+  garbage-collecting snapshots.
+- **Linux system mounts.** `/tmp`, `/var/log` and `/boot/efi` always sort last in mount lists, are
+  muted and carry a "System mount point" label; `/` is shown as "Absolute root".
+- **Header refresh and branding.** A custom snapshot switcher with coloured state badges, icon-led
+  controls, and the Scanscan logo as the favicon.
+
+### Changed
+- `human_size` moved into the terminal-view module so the CLI listings and the TUI format sizes
+  identically.
+
+
+- The header now only carries the snapshot switcher, **+ New scan**, the Size/Extension filter and
+  Settings; delete, export and GC moved into Settings, and search moved to the view bar.
+
+### Known gaps
+- Parquet export is still not written: it needs a Parquet writer crate that resolves at build
+  time. `--format parquet` fails with that reason instead of a generic message.
+
+## [1.14.0] - 2026-10-19
+### Added
+- **Loading indicators across the web client.** Selecting another snapshot veils the shell
+with a semi-transparent spinner overley that lifts once the new tiles arrive; the tree panel
+shows a spinner in the row of each folder being opened plus a strip while it loads; the
+treemap, hierarchy and chart views, drives, Docker, duplicates, diff, search, schedules and
+the launcher each show a spinner while their data loads or refreches.
+- `Spinner` component (size + assistive label) is the single spinner used everywhere, so the
+animation and colours live in one place.
+
 ## [1.13.0] - 2026-10-19
 
 ### Added

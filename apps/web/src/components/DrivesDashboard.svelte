@@ -2,6 +2,10 @@
   import type { DriveInfo, ScanSummary } from "@scanscan/api-types";
   import { createScan, errorMessage } from "../lib/api.js";
   import { formatAgo, formatBytes, percent } from "../lib/format.js";
+  import { isSystemMount, mountLabel, orderMounts } from "../lib/mounts.js";
+
+  import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
 
   interface Props {
     scans: ScanSummary[];
@@ -18,6 +22,8 @@
   interface Card {
     key: string;
     drive: DriveInfo;
+    label: string;
+    system: boolean;
     total: number;
     free: number;
     used: number;
@@ -59,7 +65,7 @@
   }
 
   const cards = $derived.by(() => {
-    return drives.map((drive) => {
+    return orderMounts(drives).map((drive) => {
       const total = drive.totalBytes ?? 0;
       const free = drive.freeBytes ?? 0;
       const used = drive.usedBytes ?? Math.max(0, total - free);
@@ -69,6 +75,8 @@
       return {
         key: drive.containerPath,
         drive,
+        label: mountLabel(drive.path),
+        system: isSystemMount(drive.path),
         total,
         free,
         used,
@@ -102,7 +110,10 @@
   <div class="head">
     <p class="hint">
       {#if loading}
-        Reading host filesystems…
+        <span class="busy" role="status" aria-label="Reading host filesystems">
+          <Spinner size={12} label="Reading host filesystems" />
+          <span>Reading host filesystems…</span>
+        </span>
       {:else if drives.length === 0}
         No host filesystem is visible at <code>{hostRoot}</code>. Mount a drive read-only there
         and reload.
@@ -131,12 +142,20 @@
 
   <ul class="grid">
     {#each cards as card (card.key)}
-      <li class="drive">
+      <li class="drive" class:system={card.system}>
         <div class="drive-head">
-          <span class="drive-name" title={card.drive.containerPath}>{card.drive.path}</span>
-          {#if card.drive.fstype}
-            <span class="pill">{card.drive.fstype}</span>
-          {/if}
+          <span class="drive-name" title={card.drive.path}>
+            <Icon name="hard-drive" size={15} />
+            {card.label}
+          </span>
+          <span class="tags">
+            {#if card.system}
+              <span class="pill system">System mount point</span>
+            {/if}
+            {#if card.drive.fstype}
+              <span class="pill">{card.drive.fstype}</span>
+            {/if}
+          </span>
         </div>
 
         {#if card.hasCapacity}
@@ -214,6 +233,13 @@
     color: var(--text);
   }
 
+  .busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--muted);
+  }
+
   .warn {
     margin: 0;
     color: var(--warn);
@@ -245,6 +271,20 @@
     background: var(--panel-2);
   }
 
+  .drive.system {
+    background: color-mix(in srgb, var(--panel-2) 62%, var(--panel));
+    color: var(--muted);
+  }
+
+  .drive.system .drive-name {
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .drive.system .meter .fill {
+    opacity: 0.65;
+  }
+
   .drive-head {
     display: flex;
     align-items: center;
@@ -253,11 +293,25 @@
   }
 
   .drive-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     overflow: hidden;
     font-size: 1rem;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .drive-name svg {
+    flex: none;
+    color: var(--muted);
+  }
+
+  .tags {
+    display: inline-flex;
+    flex: none;
+    gap: 0.3rem;
   }
 
   .pill {
@@ -266,6 +320,12 @@
     border-radius: 999px;
     color: var(--muted);
     font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .pill.system {
+    border-color: color-mix(in srgb, var(--warn) 30%, var(--border));
+    color: color-mix(in srgb, var(--muted) 80%, var(--warn));
   }
 
   .meter {

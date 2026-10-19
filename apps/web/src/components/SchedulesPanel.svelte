@@ -4,6 +4,8 @@
   import type { Schedule } from "../lib/api.js";
   import { createSchedule, deleteSchedule, errorMessage, getSchedules } from "../lib/api.js";
 
+  import Spinner from "./Spinner.svelte";
+
   let schedules = $state<Schedule[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -115,7 +117,7 @@
         <input type="checkbox" bind:checked={enabledInput} />
         <span>Enabled</span>
       </label>
-      <button type="submit" class="add" disabled={busy}>Add</button>
+      <button type="submit" class="add" disabled={busy}>{busy ? "Adding…" : "Add"}</button>
     </div>
     <p class="help">
       Cron format: minute hour day-of-month month day-of-week (5 fields). Example:
@@ -126,8 +128,18 @@
     {/if}
   </form>
 
+  {#if loading && schedules.length > 0}
+    <p class="busy" role="status" aria-label="Refreshing schedules">
+      <Spinner size={12} label="Refreshing schedules" />
+      <span>Refreshing schedules…</span>
+    </p>
+  {/if}
+
   {#if loading && schedules.length === 0}
-    <p class="state">Loading schedules…</p>
+    <p class="state" role="status" aria-label="Loading schedules">
+      <Spinner size={16} label="Loading schedules" />
+      <span>Loading schedules…</span>
+    </p>
   {:else if error}
     <p class="state err" role="alert">{error}</p>
   {:else if schedules.length === 0}
@@ -335,6 +347,10 @@
   }
 
   .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
     margin: 2rem auto;
     color: var(--muted);
     text-align: center;
@@ -342,6 +358,17 @@
 
   .state.err {
     color: var(--err);
+  }
+
+  .busy {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.78rem;
   }
 
   .form .state.err {

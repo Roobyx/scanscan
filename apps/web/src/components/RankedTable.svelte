@@ -6,6 +6,7 @@
   import { formatBytes } from "../lib/format.js";
 
   import NodeIcon from "./NodeIcon.svelte";
+  import Spinner from "./Spinner.svelte";
 
   interface RootInfo {
     id: number;
@@ -223,6 +224,12 @@
 </script>
 
 <div class="wrap" class:virtual bind:this={wrap} onscroll={handleScroll}>
+  {#if busing.length > 0}
+    <p class="busy" role="status" aria-label="Loading folders">
+      <Spinner size={12} label="Loading folders" />
+      <span>Loading {busing.length} folder{busing.length > 1 ? "s" : ""}…</span>
+    </p>
+  {/if}
   <table>
     <thead>
       <tr>
@@ -256,9 +263,15 @@
       {/if}
       {#each visible as row (row.node.id)}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_static_element_interactions a11y_no_noninteractive_tabindex -->
-        <tr class="row" class:current={row.node.id === scope}>
+        <tr
+          class="row"
+          class:current={row.node.id === scope}
+          class:loading={busing.includes(row.node.id)}
+        >
           <td class="chev">
-            {#if row.node.kind === "directory"}
+            {#if busing.includes(row.node.id)}
+              <Spinner size={12} label="Loading folder" />
+            {:else if row.node.kind === "directory"}
               <button
                 type="button"
                 class="chev-button"
@@ -374,6 +387,25 @@
 
   tbody tr.row.current {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  tbody tr.row.loading {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+
+  .busy {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0.35rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size: 0.75rem;
   }
 
   td {

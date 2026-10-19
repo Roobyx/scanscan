@@ -42,6 +42,7 @@ immutable index and answers "where did the space go?" from the CLI or the HTTP A
    - `scanscan top /var -n 50 --json` — largest entries
    - `scanscan find /var --size +1G --mtime -30d --json` — filtered search
    - `scanscan ext /var --json` — extension breakdown
+   - `scanscan tui /var` — interective terminal browse, for a human at a tty (no `--json`)
 3. Interpret, then report with concrete paths and sizes. Prefer allocated size for "space used".
 
 Always pass `--json` when the output feeds another step or a report. See

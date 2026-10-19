@@ -3,6 +3,8 @@
   import { errorMessage, getDiff } from "../lib/api.js";
   import { formatBytes } from "../lib/format.js";
 
+  import Spinner from "./Spinner.svelte";
+
   interface ScanOption {
     id: string;
     roots: string[];
@@ -104,7 +106,10 @@
       </select>
     </label>
     {#if loading && result}
-      <span class="muted">Comparing…</span>
+      <span class="busy" role="status" aria-label="Comparing snapshots">
+        <Spinner size={12} label="Comparing snapshots" />
+        <span>Comparing…</span>
+      </span>
     {/if}
   </div>
 
@@ -113,7 +118,10 @@
   {:else if otherId.length === 0}
     <p class="state">Select a baseline scan to compare.</p>
   {:else if loading && !result}
-    <p class="state">Comparing…</p>
+    <p class="state" role="status" aria-label="Comparing snapshots">
+      <Spinner size={16} label="Comparing snapshots" />
+      <span>Comparing…</span>
+    </p>
   {:else if error}
     <p class="state err" role="alert">{error}</p>
   {:else if result}
@@ -339,6 +347,10 @@
   }
 
   .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
     margin: 2rem auto;
     color: var(--muted);
     text-align: center;
@@ -346,6 +358,15 @@
 
   .state.err {
     color: var(--err);
+  }
+
+  .busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted);
+    font-size: 0.78rem;
+    white-space: nowrap;
   }
 
   .muted {

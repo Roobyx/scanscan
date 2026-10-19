@@ -4,6 +4,8 @@
   import { errorMessage, searchNodes } from "../lib/api.js";
   import { formatBytes } from "../lib/format.js";
 
+  import Spinner from "./Spinner.svelte";
+
   interface Props {
     scanId: string;
     scope: number;
@@ -97,7 +99,10 @@
   {#if error}
     <p class="state err" role="alert">{error}</p>
   {:else if loading}
-    <p class="state">Searching…</p>
+    <p class="state" role="status" aria-label="Searching">
+      <Spinner size={16} label="Searching" />
+      <span>Searching…</span>
+    </p>
   {:else if searched && results.length === 0}
     <p class="state">No matches.</p>
   {:else if results.length > 0}
@@ -257,6 +262,10 @@
   }
 
   .state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
     margin: 1rem;
     color: var(--muted);
     text-align: center;

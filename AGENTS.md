@@ -15,9 +15,11 @@ Primary target: Linux. Then macOS, then Windows. License: GPL-3.0-or-later.
 
 ## Current status
 
-Planning is complete (`PLAN.md`). The repository is otherwise unbuilt: Phase 0 (scaffolding) has
-not started. The commands below describe the target toolchain — if a path or script does not exist
-yet, scaffold it as part of Phase 0 rather than assuming it is available.
+Phases 0–4 are delivered; the repository is v1.14.0. The scanner has a Linux fast path
+(`LinuxFs`, which reuses the `statx` that a directory entry already carries) and a portable
+fallback. The remaining known gaps are the macos/Windows CI matrix, content-hash duplicates,
+criterion benchmarks, Playwright E2E tests and Parquet export. The commands below are real; run
+them in the provided Portainer stack rather than locally.
 
 ## Architecture
 
