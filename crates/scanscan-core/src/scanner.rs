@@ -215,7 +215,7 @@ impl Filesystem for LinuxFs {
             match entry {
                 Ok(e) => {
                     let path = e.path();
-                    metas.push(PortableFs::meta_for(&path, e.metadata()));
+                    metas.push(PortableFs::meta_for(&path, e.metadata()?));
                 }
                 Err(e) => metas.push(EntryMeta::errored(
                     &PathBuf::from(format!("{}/<unreadable:{e}>", dir.display())),

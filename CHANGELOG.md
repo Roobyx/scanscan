@@ -2,6 +2,15 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.15.1] - 2026-10-20
+
+### Fixed
+- **Docker image build was broken.** The Rust stage of `Dockerfile.server` did not compile:
+  `LinuxFs::read_dir` handed the `Result` of `entry.metadata()` to `PortableFs::meta_for`, which
+  takes a `Metadata`, and the TUI loop passed an owned line to `tui::parse_nav`, which takes `&str`.
+- `cargo build --release --bin scanscan` and `cargo test --workspace --release` pass again, so the
+  core, server and web stages of the image build can run.
+
 ## [1.15.0] - 2026-10-19
 
 ### Added

@@ -770,7 +770,7 @@ fn cmd_tui(
         let Ok(line) = line else {
             break;
         };
-        match tui::parse_nav(line) {
+        match tui::parse_nav(&line) {
             tui::Nav::Quit => break,
             tui::Nav::Parent => {
                 scope = parent_of(&reader, scope);
