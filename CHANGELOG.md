@@ -2,6 +2,30 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.15.5] - 2026-10-21
+
+### Fixed
+
+- **Clicking a Docker container card threw a `ReferenceError`.** The card referenced an
+  undefined `toggleSideTreeForContainer` handler; the broken handler was removed.
+
+### Changed
+
+- **The Docker tab now fetches everything in one containers call.** `GET /api/v1/docker/containers`
+  accepts an optional `?scan=` parameter and correlates each container's mounts against the
+  snapshot in the same response, replacing the separate `/docker/mounts` request the panel used
+  (which fetched the container list a second time). The `docker.mounts` / `docker.mountsFor`
+  endpoints remain available for compatibility.
+- **Live stats are shown inside the container cards and table** as CPU/MEM meters instead of a
+  separate Stats section that re-listed container names.
+- **The Overlay layers table was merged into the Containers view** as explore buttons
+  (Upper/Lower/Merged) on each card and an Overlay column in the table, removing the duplicated
+  Name/Image/State/RW columns.
+
+### Version updates
+
+- `@scanscan/web` and `@scanscan/server` 1.15.4 → 1.15.5.
+
 ## [1.15.4] - 2026-10-21
 
 ### Fixed
