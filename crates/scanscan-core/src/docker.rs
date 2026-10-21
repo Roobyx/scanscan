@@ -597,6 +597,7 @@ mod tests {
             name: name.into(),
             image: image.into(),
             state: "running".into(),
+            created: None,
             size_rw: None,
             size_root_fs: None,
             mounts: Vec::new(),
