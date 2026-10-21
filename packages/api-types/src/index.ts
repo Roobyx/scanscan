@@ -135,6 +135,8 @@ export interface ContainerInfo {
   name: string;
   image: string;
   state: string;
+  /// Nanoseconds since the Unix epoch, from the Docker Engine API `Created`.
+  created?: number;
   sizeRw?: number;
   sizeRootFs?: number;
   mounts: MountInfo[];

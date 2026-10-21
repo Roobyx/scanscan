@@ -2,6 +2,15 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.15.2] - 2026-10-21
+
+### Added
+- **Docker container views and sorting.** The containers section now offers a Cards or Table view, and containers can be sorted by size, date created, or running state, with a sort-direction toggle.
+- **`ContainerInfo.created`.** The Docker container summary now exposes the container creation timestamp (from the Engine API `Created` field), surfaced as a "Created" age in the UI.
+
+### Changed
+- `@scanscan/web` 1.15.0 → 1.15.1; `@scanscan/api-types` 1.13.0 → 1.13.1; workspace crates 1.15.1 → 1.15.2.
+
 ## [1.15.1] - 2026-10-20
 
 ### Fixed

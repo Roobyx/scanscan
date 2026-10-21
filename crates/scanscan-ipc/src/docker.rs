@@ -34,6 +34,9 @@ pub struct ContainerInfo {
     pub name: String,
     pub image: String,
     pub state: String,
+    /// Nanoseconds since the Unix epoch, from the Docker Engine API `Created`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size_rw: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

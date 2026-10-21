@@ -18,7 +18,7 @@
     getDockerStats,
     getDockerVolumes,
   } from "../lib/api.js";
-  import { formatBytes, percent } from "../lib/format.js";
+  import { formatBytes, formatAgo, percent } from "../lib/format.js";
 
   import Spinner from "./Spinner.svelte";
 
@@ -40,6 +40,23 @@
   let locateQuery = $state("");
   let locateMatches = $state<LocateMatch[]>([]);
   let locating = $state(false);
+
+  type ContainerView = "cards" | "table";
+  type ContainerSort = "size" | "created" | "state";
+
+  let view: ContainerView = $state("cards");
+  let sortBy: ContainerSort = $state("size");
+  let sortDir: "asc" | "desc" = $state("desc");
+
+  const sortedContainers = $derived(
+    [...containers].sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "size") cmp = (a.sizeRw ?? 0) - (b.sizeRw ?? 0);
+      else if (sortBy === "created") cmp = (a.created ?? 0) - (b.created ?? 0);
+      else cmp = a.state.localeCompare(b.state);
+      return sortDir === "desc" ? -cmp : cmp;
+    }),
+  );
 
   async function locate(): Promise<void> {
     const query = locateQuery.trim();
@@ -175,12 +192,49 @@
     </p>
   {:else}
     <section class="block">
-      <h3>Containers <span class="muted">{containers.length}</span></h3>
+      <div class="container-controls">
+        <h3>Containers <span class="muted">{containers.length}</span></h3>
+        <div class="container-toolbar">
+          <label class="toolbar-label">View</label>
+          <div class="toggle-group" role="group" aria-label="Container view">
+            <button
+              type="button"
+              class:active={view === "cards"}
+              onclick={() => (view = "cards")}
+              aria-pressed={view === "cards"}
+            >
+              Cards
+            </button>
+            <button
+              type="button"
+              class:active={view === "table"}
+              onclick={() => (view = "table")}
+              aria-pressed={view === "table"}
+            >
+              Table
+            </button>
+          </div>
+          <label class="toolbar-label">Sort by</label>
+          <select bind:value={sortBy} aria-label="Container sort field">
+            <option value="size">Size</option>
+            <option value="created">Date created</option>
+            <option value="state">Running state</option>
+          </select>
+          <button
+            type="button"
+            class:desc={sortDir === "desc"}
+            onclick={() => (sortDir = sortDir === "desc" ? "asc" : "desc")}
+            aria-label="Toggle sort direction"
+          >
+            {sortDir === "desc" ? "▾" : "▴"}
+          </button>
+        </div>
+      </div>
       {#if containers.length === 0}
         <p class="muted small">No containers found. Docker may be unavailable.</p>
-      {:else}
+      {:else if view === "cards"}
         <div class="cards">
-          {#each containers as container (container.id)}
+          {#each sortedContainers as container (container.id)}
             <article class="card">
               <header>
                 <span class="name" title={container.name}>{container.name}</span>
@@ -200,9 +254,49 @@
                 <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
                 <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
                 <div><dt>Mounts</dt><dd>{container.mounts.length}</dd></div>
+                {#if container.created !== undefined}
+                  <div><dt>Created</dt><dd>{formatAgo(container.created / 1e6)}</dd></div>
+                {/if}
               </dl>
             </article>
           {/each}
+        </div>
+      {:else}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>State</th>
+                <th class="ellipsis" title="Image">Image</th>
+                <th class="num">Size RW</th>
+                <th class="num">Created</th>
+                <th class="num">Mounts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each sortedContainers as container (container.id)}
+                <tr>
+                  <td class="ellipsis" title={container.name}>{container.name}</td>
+                  <td>
+                    <span class="state-pill" class:running={container.state === "running"}>
+                      {container.state}
+                    </span>
+                  </td>
+                  <td class="ellipsis" title={container.image}>{container.image}</td>
+                  <td class="num">{formatBytes(container.sizeRw ?? 0)}</td>
+                  <td class="num">
+                    {#if container.created !== undefined}
+                      {formatAgo(container.created / 1e6)}
+                    {:else}
+                      —
+                    {/if}
+                  </td>
+                  <td class="num">{container.mounts.length}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
         </div>
       {/if}
     </section>
@@ -463,6 +557,90 @@
     margin: 0;
     font-size: 0.78rem;
     font-variant-numeric: tabular-nums;
+  }
+
+  .container-controls {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .container-controls h3 {
+    margin: 0;
+  }
+
+  .container-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-label {
+    color: var(--muted);
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .toggle-group {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+  }
+
+  .toggle-group button {
+    padding: 0.2rem 0.55rem;
+    border: none;
+    border-right: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .toggle-group button:last-child {
+    border-right: none;
+  }
+
+  .toggle-group button.active {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent);
+  }
+
+  .container-toolbar select {
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+
+  .container-toolbar button {
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+
+  .container-toolbar button.desc {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent);
   }
 
   .stats {

@@ -224,6 +224,7 @@ fn parse_container(item: &Value) -> ContainerInfo {
         .to_string();
     let image = item.get("Image").and_then(Value::as_str).unwrap_or("").to_string();
     let state = item.get("State").and_then(Value::as_str).unwrap_or("").to_string();
+    let created = item.get("Created").and_then(Value::as_u64);
     let size_rw = item.get("SizeRw").and_then(Value::as_u64);
     let size_root_fs = item.get("SizeRootFs").and_then(Value::as_u64);
 
@@ -274,6 +275,7 @@ fn parse_container(item: &Value) -> ContainerInfo {
         name,
         image,
         state,
+        created,
         size_rw,
         size_root_fs,
         mounts,
