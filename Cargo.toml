@@ -1,13 +1,9 @@
 [workspace]
 resolver = "2"
-members = [
-    "crates/scanscan-core",
-    "crates/scanscan-cli",
-    "crates/scanscan-ipc",
-]
+members = ["crates/scanscan-core", "crates/scanscan-cli", "crates/scanscan-ipc"]
 
 [workspace.package]
-version = "1.15.2"
+version = "1.15.3"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/Roobyx/scanscan"

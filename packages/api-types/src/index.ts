@@ -86,7 +86,7 @@ export interface NodeRecord {
   label?: string;
   error?: boolean;
   /** Absolute filesystem path, populated only where the core resolves it (e.g. Duplicates). */
-  path?: string;
+  path?: string | null;
 }
 
 export interface Tile {
@@ -145,6 +145,13 @@ export interface ContainerInfo {
   overlayMerged?: string;
   composeProject?: string;
   composeService?: string;
+  displayName?: string;
+}
+
+export interface ContainerOverlayContents {
+  nodeId: number | null;
+  totalSize: number;
+  children: NodeRecord[];
 }
 
 export interface LocateMatch {

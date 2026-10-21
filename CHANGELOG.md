@@ -5,15 +5,28 @@ All notable changes to scanscan are documented here. Newest entries first.
 ## [1.15.2] - 2026-10-21
 
 ### Added
+
 - **Docker container views and sorting.** The containers section now offers a Cards or Table view, and containers can be sorted by size, date created, or running state, with a sort-direction toggle.
 - **`ContainerInfo.created`.** The Docker container summary now exposes the container creation timestamp (from the Engine API `Created` field), surfaced as a "Created" age in the UI.
 
 ### Changed
+
 - `@scanscan/web` 1.15.0 → 1.15.1; `@scanscan/api-types` 1.13.0 → 1.13.1; workspace crates 1.15.1 → 1.15.2.
+
+## [1.15.3] - 2026-10-21
+
+### Added
+
+- **`ContainerInfo.displayName`.** Docker containers are now shown with a meaningful name rather than the raw Docker Compose ID: `com.docker.compose.service` is preferred over `coolify.serviceName` or `coolify.name`, falling back to the container's raw name.
+
+### Changed
+
+- `@scanscan/web` 1.15.1 → 1.15.2; `@scanscan/api-types` 1.13.1 → 1.13.2; `@scanscan/server` 1.13.0 → 1.15.3; `@scanscan/site` 1.12.0 → 1.15.3; workspace crates 1.15.2 → 1.15.3.
 
 ## [1.15.1] - 2026-10-20
 
 ### Fixed
+
 - **Docker image build was broken.** The Rust stage of `Dockerfile.server` did not compile:
   `LinuxFs::read_dir` handed the `Result` of `entry.metadata()` to `PortableFs::meta_for`, which
   takes a `Metadata`, and the TUI loop passed an owned line to `tui::parse_nav`, which takes `&str`.
@@ -23,6 +36,7 @@ All notable changes to scanscan are documented here. Newest entries first.
 ## [1.15.0] - 2026-10-19
 
 ### Added
+
 - **Linux fast path (`LinuxFs`).** A directory is now read in one syscall: the `statx` that the
   directory entry already carries is reused instead of `lstat`-ing every entry a second time.
   `PortableFs` remains the portable fallback, and a test asserts that both walkers produce the
@@ -41,30 +55,34 @@ All notable changes to scanscan are documented here. Newest entries first.
   controls, and the Scanscan logo as the favicon.
 
 ### Changed
+
 - `human_size` moved into the terminal-view module so the CLI listings and the TUI format sizes
   identically.
-
 
 - The header now only carries the snapshot switcher, **+ New scan**, the Size/Extension filter and
   Settings; delete, export and GC moved into Settings, and search moved to the view bar.
 
 ### Known gaps
+
 - Parquet export is still not written: it needs a Parquet writer crate that resolves at build
   time. `--format parquet` fails with that reason instead of a generic message.
 
 ## [1.14.0] - 2026-10-19
+
 ### Added
+
 - **Loading indicators across the web client.** Selecting another snapshot veils the shell
-with a semi-transparent spinner overley that lifts once the new tiles arrive; the tree panel
-shows a spinner in the row of each folder being opened plus a strip while it loads; the
-treemap, hierarchy and chart views, drives, Docker, duplicates, diff, search, schedules and
-the launcher each show a spinner while their data loads or refreches.
+  with a semi-transparent spinner overley that lifts once the new tiles arrive; the tree panel
+  shows a spinner in the row of each folder being opened plus a strip while it loads; the
+  treemap, hierarchy and chart views, drives, Docker, duplicates, diff, search, schedules and
+  the launcher each show a spinner while their data loads or refreches.
 - `Spinner` component (size + assistive label) is the single spinner used everywhere, so the
-animation and colours live in one place.
+  animation and colours live in one place.
 
 ## [1.13.0] - 2026-10-19
 
 ### Added
+
 - **Drives dashboard, and it is now the default view.** The app opens on one card per host
   filesystem: a usage bar with free/used text (Windows Explorer style), the filesystem type, the
   newest snapshot's size and age, and Open/Scan actions. `GET /api/v1/host/drives` takes the host
@@ -80,12 +98,14 @@ animation and colours live in one place.
   filesystem the selected snapshot came from.
 
 ### Changed
+
 - **New scan** now opens the launcher inside the dashboard instead of blanking the selection, and
   the launcher is offered automatically while no snapshot exists yet.
 - Host drives are loaded once by the app shell and shared by the Drives dashboard and the chart
   panel head instead of being fetched per component.
 
 ### Fixed
+
 - **Chart tooltips were cut off at the right and bottom edges.** Treemap, sunburst and bubble
   tooltips now flip to the other side of the cursor when the default below-right offset would
   leave the chart box. They are anchored by their own right/bottom edge (`lib/tooltip.ts`), so the
@@ -94,6 +114,7 @@ animation and colours live in one place.
 ## [1.12.0] - 2026-10-05
 
 ### Added
+
 - **Duplicate file paths with copy-to-clipboard.** Expanding a group in the Duplicates tab now
   lists the full filesystem path of every matching file, each with a Copy button. The core
   resolves the absolute path from the snapshot's canonical root and returns it as
@@ -103,6 +124,7 @@ animation and colours live in one place.
 ## [1.11.2] - 2026-10-05
 
 ### Fixed
+
 - **Duplicates returned no response on very large snapshots.** It allocated a `Vec` per
   file (millions of allocations); it now counts matches first and only collects node ids
   for keys that actually repeat.
@@ -113,6 +135,7 @@ animation and colours live in one place.
 ## [1.11.1] - 2026-10-05
 
 ### Fixed
+
 - **Overlay2 labels never appeared.** The core's Docker HTTP client used a 5s read timeout,
   which `GET /containers/json?size=1` exceeds on a busy host (`os error 11`), so the
   container list came back empty and no labels were attached. The timeout is now 30s, and
@@ -126,6 +149,7 @@ animation and colours live in one place.
 ## [1.11.0] - 2026-10-05
 
 ### Added
+
 - **Docker overlay2 labels.** Scans now annotate `/var/lib/docker/overlay2/<id>`
   directories with the container, image and compose stack/service that own them (read from
   each container's `GraphDriver` layer paths and Docker labels). The label appears in the
@@ -139,6 +163,7 @@ animation and colours live in one place.
 ## [1.10.1] - 2026-10-05
 
 ### Fixed
+
 - The core daemon is now supervised. If it dies on its own (e.g. an OOM kill) the server
   respawns it with a capped backoff and reconnects automatically, instead of leaving a stale
   socket behind that made every request fail with `ECONNREFUSED /run/scanscan/scanscan.sock`
@@ -151,6 +176,7 @@ animation and colours live in one place.
 ## [1.10.0] - 2026-10-03
 
 ### Added
+
 - Docker **locate**: paste a host path or an id fragment (e.g. an overlay2 layer id like
   `ff50410b…`) into the Docker panel and it reports the container/stack that owns it. It matches
   container mounts and each container's overlay (GraphDriver) upper/lower/merged directories.
@@ -159,6 +185,7 @@ animation and colours live in one place.
 ## [1.9.3] - 2026-10-03
 
 ### Fixed
+
 - The Docker tab returned HTTP 502 while scans were running. The core daemon processed requests
   sequentially per connection, so a slow Docker call (stats across many containers) blocked the
   shared connection until the server timed out. Each request now runs on its own thread, and
@@ -167,6 +194,7 @@ animation and colours live in one place.
 ## [1.9.2] - 2026-10-03
 
 ### Added
+
 - The scan form now exposes **exclusions** (gitignore-style globs) and an **"include other mounted
   filesystems"** toggle. By default a scan stops at filesystem boundaries, so scanning `/host`
   scans only the root filesystem and skips separately-mounted drives (`/mnt/piDrive`, etc.).
@@ -174,16 +202,19 @@ animation and colours live in one place.
 ## [1.9.1] - 2026-10-03
 
 ### Added
+
 - A per-scan **Delete** button in the header, so individual snapshots can be removed from the UI
   (previously only GC was available).
 
 ### Changed
+
 - Reverted the experimental Parquet export: its dependency failed to resolve at build time, so it
   will return with a working approach.
 
 ## [1.9.0] - 2026-10-03
 
 ### Added
+
 - Content-addressed block store (ADR-2). The writer chunks the fixed-size columns (nodes, subtree,
   inode) into 64K-node zstd-compressed blocks stored under `snapshots/blocks/<ab>/<hash>`, addressed
   by BLAKE3 and deduplicated. The manifest records block references; the reader decompresses blocks
@@ -193,6 +224,7 @@ animation and colours live in one place.
 ## [1.8.0] - 2026-10-03
 
 ### Added
+
 - Incremental rescans (`--incremental` / `options.incremental`). Snapshots now carry an inode
   column (`ino`+`dev` per node, format v2), and a rescan reuses any directory whose `(mtime, inode)`
   is unchanged by copying its subtree from the previous snapshot instead of re-reading the
@@ -201,12 +233,14 @@ animation and colours live in one place.
 ## [1.7.0] - 2026-10-02
 
 ### Added
+
 - OpenAPI 3 document served at `GET /api/v1/openapi.json`, describing every endpoint (core, scans,
   tree, query, docker, schedules) for the web client and the docs site.
 
 ## [1.6.0] - 2026-10-02
 
 ### Added
+
 - Scheduled scans: a server-side cron scheduler (`GET/POST/DELETE /api/v1/schedules`) that
   triggers scans on a 5-field cron expression, plus a Schedules view to add, list and delete
   schedules.
@@ -214,6 +248,7 @@ animation and colours live in one place.
 ## [1.5.1] - 2026-10-02
 
 ### Fixed
+
 - `docker.mountsFor` could hang: resolving each mount via `IndexReader::children` was O(subtree)
   per call, making N mounts O(N·n). It now builds a parent→children index once and computes each
   distinct node's subtree bytes once.
@@ -221,6 +256,7 @@ animation and colours live in one place.
 ## [1.5.0] - 2026-10-02
 
 ### Added
+
 - Docker image and volume sizes: `docker.images` / `GET /api/v1/docker/images` and `docker.volumes`
   / `GET /api/v1/docker/volumes`, shown in the Docker panel as images and volumes tables.
 - Mount → index correlation: `docker.mountsFor` / `GET /api/v1/docker/mounts?scan=<id>` resolves
@@ -230,6 +266,7 @@ animation and colours live in one place.
 ## [1.4.0] - 2026-10-02
 
 ### Added
+
 - Age × size heatmap view (PLAN §10.3 #8): `query.heatmap` / `GET /api/v1/scans/:id/heatmap`
   bins every file by age bucket (from `<1d` to `>3y`) and size bucket (from `0-1 KB` to `>1 GB`);
   the web client renders it as a heatmap with per-cell file count and bytes.
@@ -237,11 +274,13 @@ animation and colours live in one place.
 ## [1.3.0] - 2026-10-02
 
 ### Added
+
 - Global scan progress: a floating panel (bottom-right) shows running scans with live file/dir/
   byte counts and the current path, visible from every view. Starting a scan no longer blocks the
   form; the dashboard navigates to the snapshot when the scan finishes.
 
 ### Fixed
+
 - Host drive discovery no longer reads `/proc/mounts`, which reflects the container's namespace
   even when bind-mounted. It now walks the read-only `/host` mount and detects mount points by
   device changes, so the picker lists the host's real filesystems.
@@ -249,6 +288,7 @@ animation and colours live in one place.
 ## [1.2.1] - 2026-10-02
 
 ### Fixed
+
 - The host drive picker listed the container's mounts instead of the host's. The stack now mounts
   the host's `/proc/mounts` at `/host.mounts` (`SCANSCAN_HOST_MOUNTS`) and prefers it when reading
   mounts.
@@ -256,6 +296,7 @@ animation and colours live in one place.
 ## [1.2.0] - 2026-10-02
 
 ### Added
+
 - Host drive picker in the scan form: `host.mounts` (GET `/api/v1/host/mounts`) reads the host
   mount table under `/host/proc/mounts`, filters to real block-backed filesystems, and maps each
   host mountpoint to its container path. The **Start a scan** panel lists the drives and fills the
@@ -265,23 +306,27 @@ animation and colours live in one place.
 ## [1.1.0] - 2026-10-02
 
 ### Added
+
 - Host filesystem scanning. The compose stack bind-mounts the host read-only at `/host`
   (`HOST_MOUNT`) and defaults `SCANSCAN_ROOTS` to `/host`; the scan form pre-fills the configured
   roots. The app container runs as root so the core can read the whole host (read-only).
 
 ### Changed
+
 - Pseudo-filesystem exclusions (`proc`, `sys`, `dev`, `run`, `snap`) are now applied under every
   root, not only `/`.
 
 ## [1.0.1] - 2026-10-02
 
 ### Fixed
+
 - The dashboard had no visible way to start a new scan once a completed scan was auto-selected.
   Added an always-visible **+ New scan** button in the header.
 
 ## [1.0.0] - 2026-10-02
 
 ### Added
+
 - Phase 4: Astro + Starlight documentation site — a splash landing page plus getting started,
   installation, web UI, CLI, HTTP API, Docker, agent-skill, architecture, configuration, security
   and troubleshooting pages.
@@ -289,24 +334,27 @@ animation and colours live in one place.
   images pushed to GHCR.
 
 ### Changed
+
 - The CI workflow is manual-only (`workflow_dispatch`) until GitHub Actions is configured for the
   repository.
 
 ## [0.4.0] - 2026-10-02
 
 ### Added
+
 - Phase 3: metadata duplicate detection (name+size, optionally +mtime) with wasted-space ranking,
   exposed via `query.duplicates`, `GET /scans/:id/duplicates`, `scanscan find --dupe`, and a
   Duplicates view.
 - Snapshot diff/trend: `query.diff` joins two snapshots by relative path and reports
   grown/shrunk/added/removed with totals; exposed via `GET /scans/:id/diff/:otherId`, `scanscan
-  diff`, and a Diff view.
+diff`, and a Diff view.
 - Snapshot garbage collection (`snapshots.gc`, `POST /api/v1/gc`, `scanscan snapshots gc`) that
   keeps the newest N completed snapshots.
 
 ## [0.3.0] - 2026-10-02
 
 ### Added
+
 - Phase 2 views: sunburst, icicle, bubble, ranked bars, size histogram, and extension/age/owner
   breakdowns, alongside the treemap; a Docker dashboard with container cards, mounts and live
   stats; and a search/filter panel.
@@ -318,12 +366,14 @@ animation and colours live in one place.
   reference stack ships a GET-only `docker-socket-proxy` sidecar instead of mounting `docker.sock`.
 
 ### Changed
+
 - The IPC/HTTP wire types now serialize camelCase, matching `packages/api-types` and the web client
   (previously snake_case, which the browser could not read).
 
 ## [0.2.0] - 2026-10-02
 
 ### Added
+
 - Phase 1 MVP: streaming pre-order Rust scanner with parallel `stat`, hardlink dedup, sparse-file
   and mount-boundary flags, exclusions (glob + pseudo-fs defaults), per-entry error recording, and
   throttled progress.
@@ -339,6 +389,7 @@ animation and colours live in one place.
 ## [0.1.0] - 2026-10-02
 
 ### Added
+
 - Phase 0 foundation: Rust workspace (`scanscan-core`, `scanscan-cli`, `scanscan-ipc`) with the
   `Filesystem` abstraction, configuration, and the JSON-RPC 2.0 protocol types.
 - TypeScript monorepo: Bun + Hono API server (`/api/v1/health|version|config`), Svelte 5 + Vite

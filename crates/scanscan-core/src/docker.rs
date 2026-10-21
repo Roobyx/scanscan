@@ -212,6 +212,33 @@ fn parse_containers(value: &Value) -> Result<Vec<ContainerInfo>> {
     Ok(array.iter().map(parse_container).collect())
 }
 
+/// Best-effort human-readable name for a container.
+///
+/// Priority: the Docker Compose service, then the Coolify service name, then
+/// the Coolify application name, and finally the raw container name. Both
+/// Coolify labels are checked because Coolify sets `coolify.name` to the
+/// application name and `coolify.serviceName` to the service within it.
+fn display_name_from_labels(
+    name: &str,
+    labels: Option<&serde_json::Map<String, Value>>,
+) -> Option<String> {
+    let label = |key: &str| {
+        labels
+            .and_then(|l| l.get(key))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    label("com.docker.compose.service")
+        .or_else(|| label("coolify.serviceName"))
+        .or_else(|| label("coolify.name"))
+        .or_else(|| {
+            let trimmed = name.trim_start_matches('/');
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+}
+
 fn parse_container(item: &Value) -> ContainerInfo {
     let id = item.get("Id").and_then(Value::as_str).unwrap_or("").to_string();
     let name = item
@@ -238,6 +265,7 @@ fn parse_container(item: &Value) -> ContainerInfo {
     };
     let compose_project = compose_label("com.docker.compose.project");
     let compose_service = compose_label("com.docker.compose.service");
+    let display_name = display_name_from_labels(&name, labels.as_ref());
 
     let mounts = item
         .get("Mounts")
@@ -284,6 +312,7 @@ fn parse_container(item: &Value) -> ContainerInfo {
         overlay_merged: None,
         compose_project,
         compose_service,
+        display_name,
     }
 }
 
@@ -343,11 +372,19 @@ fn layer_dir(path: &str) -> Option<String> {
 }
 
 fn container_label(container: &ContainerInfo) -> String {
-    let image = container.image.split('@').next().unwrap_or(container.image.as_str());
+    let name = container
+        .display_name
+        .as_deref()
+        .unwrap_or(&container.name);
+    let image = container
+        .image
+        .split('@')
+        .next()
+        .unwrap_or(container.image.as_str());
     let mut label = if image.is_empty() {
-        container.name.clone()
+        name.to_string()
     } else {
-        format!("{} ({image})", container.name)
+        format!("{name} ({image})")
     };
     match (&container.compose_project, &container.compose_service) {
         (Some(project), Some(service)) => label.push_str(&format!(" · {project}/{service}")),
@@ -511,6 +548,7 @@ mod tests {
             overlay_merged: None,
             compose_project: Some("myapp".into()),
             compose_service: Some(name.into()),
+            display_name: Some(name.to_string()),
         }
     }
 
@@ -556,10 +594,75 @@ mod tests {
         let mut c = container("web", "nginx", "/var/lib/docker/overlay2/aaa/diff", "");
         c.compose_project = None;
         c.compose_service = None;
+        c.display_name = None;
         let map = overlay_labels(&[c], "/");
         assert_eq!(
             map.get("/var/lib/docker/overlay2/aaa").map(String::as_str),
             Some("web (nginx)")
+        );
+    }
+
+    #[test]
+    fn display_name_prefers_compose_service() {
+        let labels = serde_json::json!({
+            "com.docker.compose.service": "web",
+            "com.docker.compose.project": "myapp",
+            "coolify.name": "myapp",
+            "coolify.serviceName": "myapp-web",
+        });
+        let item = serde_json::json!({
+            "Id": "abc",
+            "Names": ["/myapp-web-1"],
+            "Image": "nginx:latest",
+            "State": "running",
+            "Labels": labels,
+        });
+        let parsed = parse_container(&item);
+        assert_eq!(parsed.display_name.as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn display_name_uses_coolify_service_then_name() {
+        let service = serde_json::json!({
+            "Id": "abc",
+            "Names": ["/f5e9py5jd9pkjkd5tmomu6sa-20261020T143516"],
+            "Image": "img",
+            "State": "running",
+            "Labels": {
+                "coolify.name": "myapp",
+                "coolify.serviceName": "packpack",
+            },
+        });
+        assert_eq!(
+            parse_container(&service).display_name.as_deref(),
+            Some("packpack")
+        );
+
+        let app_only = serde_json::json!({
+            "Id": "abc",
+            "Names": ["/f5e9py5jd9pkjkd5tmomu6sa-20261020T143516"],
+            "Image": "img",
+            "State": "running",
+            "Labels": { "coolify.name": "myapp" },
+        });
+        assert_eq!(
+            parse_container(&app_only).display_name.as_deref(),
+            Some("myapp")
+        );
+    }
+
+    #[test]
+    fn display_name_falls_back_to_container_name() {
+        let item = serde_json::json!({
+            "Id": "abc",
+            "Names": ["/standalone"],
+            "Image": "img",
+            "State": "running",
+            "Labels": {},
+        });
+        assert_eq!(
+            parse_container(&item).display_name.as_deref(),
+            Some("standalone")
         );
     }
 }

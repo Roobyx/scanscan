@@ -1,13 +1,16 @@
 {
   "name": "scanscan",
-  "version": "1.15.1",
+  "version": "1.15.3",
   "private": true,
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/Roobyx/scanscan"
   },
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "bun run --filter '*' build",
     "test": "bun run --filter '*' test",

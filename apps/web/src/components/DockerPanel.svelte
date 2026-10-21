@@ -15,6 +15,7 @@
     getDockerImages,
     getDockerLocate,
     getDockerMounts,
+    getDockerOverlayContents,
     getDockerStats,
     getDockerVolumes,
   } from "../lib/api.js";
@@ -92,6 +93,17 @@
 
   function reveal(mount: MountInfo): void {
     if (mount.node !== undefined) onreveal?.(mount.node);
+  }
+
+async function exploreOverlay(scanId: string, containerId: string, layer: string): Promise<void> {
+    try {
+      const result = await getDockerOverlayContents(scanId, containerId, layer);
+      if (result.nodeId !== null) {
+        onreveal?.(result.nodeId);
+      }
+    } catch (cause) {
+      error = errorMessage(cause);
+    }
   }
 
   async function loadInitial(id: string | undefined): Promise<void> {
@@ -237,7 +249,7 @@
           {#each sortedContainers as container (container.id)}
             <article class="card">
               <header>
-                <span class="name" title={container.name}>{container.name}</span>
+                <span class="name" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</span>
                 <span class="state-pill" class:running={container.state === "running"}>
                   {container.state}
                 </span>
@@ -277,14 +289,14 @@
             <tbody>
               {#each sortedContainers as container (container.id)}
                 <tr>
-                  <td class="ellipsis" title={container.name}>{container.name}</td>
-                  <td>
-                    <span class="state-pill" class:running={container.state === "running"}>
-                      {container.state}
-                    </span>
-                  </td>
-                  <td class="ellipsis" title={container.image}>{container.image}</td>
-                  <td class="num">{formatBytes(container.sizeRw ?? 0)}</td>
+                   <td class="ellipsis" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</td>
+                   <td>
+                     <span class="state-pill" class:running={container.state === "running"}>
+                       {container.state}
+                     </span>
+                   </td>
+                   <td class="ellipsis" title={container.image}>{container.image}</td>
+                   <td class="num">{formatBytes(container.sizeRw ?? 0)}</td>
                   <td class="num">
                     {#if container.created !== undefined}
                       {formatAgo(container.created / 1e6)}
@@ -396,7 +408,7 @@
       {/if}
     </section>
 
-    <section class="block">
+<section class="block">
       <h3>Mounts <span class="muted">{mounts.length}</span></h3>
       {#if mounts.length === 0}
         <p class="muted small">No mounts reported.</p>
@@ -444,6 +456,94 @@
             </tbody>
           </table>
         </div>
+      {/if}
+    </section>
+
+    <section class="block">
+      <h3>Containers <span class="muted">{containers.length}</span></h3>
+      {#if containers.length === 0}
+        <p class="muted small">No containers found. Docker may be unavailable.</p>
+      {:else}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Image</th>
+                <th>State</th>
+                <th class="num">RW</th>
+                <th class="num">Upper</th>
+                <th class="num">Lower</th>
+                <th class="num">Merged</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each sortedContainers as container (container.id)}
+                <tr>
+                   <td class="ellipsis" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</td>
+                   <td class="ellipsis" title={container.image}>{container.image}</td>
+                  <td>
+                    <span class="state-pill" class:running={container.state === "running"}>
+                      {container.state}
+                    </span>
+                  </td>
+                  <td class="num">{formatBytes(container.sizeRw ?? 0)}</td>
+                  {#if scanId}
+                    {#if container.overlayUpper}
+                      <td class="num">
+                        <button
+                          type="button"
+                          class="node-link"
+                          title="Explore overlay upper layer"
+                          onclick={() => void exploreOverlay(scanId, container.id, "")}
+                        >
+                          Explore
+                        </button>
+                      </td>
+                    {:else}
+                      <td class="num">—</td>
+                    {/if}
+                    {#if container.overlayLower}
+                      <td class="num">
+                        <button
+                          type="button"
+                          class="node-link"
+                          title="Explore overlay lower layers"
+                          onclick={() => void exploreOverlay(scanId, container.id, "lower")}
+                        >
+                          Explore
+                        </button>
+                      </td>
+                    {:else}
+                      <td class="num">—</td>
+                    {/if}
+                    {#if container.overlayMerged}
+                      <td class="num">
+                        <button
+                          type="button"
+                          class="node-link"
+                          title="Explore merged overlay"
+                          onclick={() => void exploreOverlay(scanId, container.id, "merged")}
+                        >
+                          Explore
+                        </button>
+                      </td>
+                    {:else}
+                      <td class="num">—</td>
+                    {/if}
+                  {:else}
+                    <td class="num">—</td>
+                    <td class="num">—</td>
+                    <td class="num">—</td>
+                  {/if}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </section>
+  </div>
       {/if}
     </section>
   {/if}

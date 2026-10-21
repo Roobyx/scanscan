@@ -55,6 +55,10 @@ pub struct ContainerInfo {
     /// `com.docker.compose.service` label, when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compose_service: Option<String>,
+    /// Best-effort human-readable container name, derived from Docker Compose
+    /// service or Coolify labels, falling back to the container name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// A container/stack that owns a given host path or id fragment.
