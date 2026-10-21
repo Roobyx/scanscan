@@ -75,8 +75,8 @@ GET  /api/v1/scans/:id/duplicates?mode=name+size|name+size+mtime&limit=
 GET  /api/v1/scans/:id/diff/:otherId
 GET  /api/v1/scans/:id/export?format=csv|json
 POST /api/v1/gc                        # { keep } — delete snapshots beyond the newest N
-GET  /api/v1/docker/containers
-GET  /api/v1/docker/mounts
+GET  /api/v1/docker/containers?scan=     # containers with sizes + mounts; with ?scan= mounts are correlated to snapshot nodes in the same response
+GET  /api/v1/docker/mounts               # flattened mounts (legacy; prefer containers?scan=)
 GET  /api/v1/docker/stats
 GET  /api/v1/docker/status
 GET  /api/v1/docker/locate?q=          # find the container owning a path / overlay2 id

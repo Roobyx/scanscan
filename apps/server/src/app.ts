@@ -424,7 +424,10 @@ export function createApp({ config, core, scheduler, startedAt = Date.now() }: A
 
   app.get("/api/v1/docker/containers", async (c) => {
     try {
-      return c.json(await core.call("docker.containers"));
+      const scan = c.req.query("scan");
+      return c.json(
+        await core.call("docker.containers", scan ? { scan } : undefined),
+      );
     } catch (error) {
       return coreError(String(error));
     }

@@ -4,7 +4,6 @@
     DockerStats,
     ImageInfo,
     LocateMatch,
-    MountInfo,
     VolumeInfo,
   } from "@scanscan/api-types";
   import { onMount } from "svelte";
@@ -14,7 +13,6 @@
     getDockerContainers,
     getDockerImages,
     getDockerLocate,
-    getDockerMounts,
     getDockerOverlayContents,
     getDockerStats,
     getDockerVolumes,
@@ -26,19 +24,17 @@
   interface Props {
     scanId?: string;
     onreveal?: (nodeId: number) => void;
-    onToggleSideTree?: (nodeId: number) => void;
   }
 
-  let { scanId, onreveal, onToggleSideTree }: Props = $props();
+  let { scanId, onreveal }: Props = $props();
 
   let containers = $state<ContainerInfo[]>([]);
   let images = $state<ImageInfo[]>([]);
   let volumes = $state<VolumeInfo[]>([]);
-  let mounts = $state<MountInfo[]>([]);
-  let stats = $state<DockerStats[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let timer: ReturnType<typeof setInterval> | null = null;
+  let statsById = $state<Map<string, DockerStats>>(new Map());
   let locateQuery = $state("");
   let locateMatches = $state<LocateMatch[]>([]);
   let locating = $state(false);
@@ -81,10 +77,15 @@
     [...volumes].sort((a, b) => (b.size ?? -1) - (a.size ?? -1)),
   );
   const isEmpty = $derived(
-    containers.length === 0 && images.length === 0 && volumes.length === 0 && mounts.length === 0,
+    containers.length === 0 && images.length === 0 && volumes.length === 0,
   );
 
-  function mountKey(mount: MountInfo): string {
+  // The containers response already carries each container's mounts; the
+  // flattened view for the Mounts table is derived client-side so the panel
+  // does not fetch the same data twice.
+  const allMounts = $derived(containers.flatMap((container) => container.mounts));
+
+  function mountKey(mount: ContainerInfo["mounts"][number]): string {
     return `${mount.containerId}:${mount.destination}:${mount.source}`;
   }
 
@@ -92,7 +93,7 @@
     return image.repoTags.length > 0 ? image.repoTags.join(", ") : "<none>";
   }
 
-  function reveal(mount: MountInfo): void {
+  function reveal(mount: ContainerInfo["mounts"][number]): void {
     if (mount.node !== undefined) onreveal?.(mount.node);
   }
 
@@ -115,18 +116,14 @@
     loading = true;
     error = null;
     try {
-      const [nextContainers, nextImages, nextVolumes, nextMounts, nextStats] = await Promise.all([
-        getDockerContainers(),
+      const [nextContainers, nextImages, nextVolumes] = await Promise.all([
+        getDockerContainers(id),
         getDockerImages(),
         getDockerVolumes(),
-        getDockerMounts(id),
-        getDockerStats(),
       ]);
       containers = nextContainers;
       images = nextImages;
       volumes = nextVolumes;
-      mounts = nextMounts;
-      stats = nextStats;
     } catch (cause) {
       error = errorMessage(cause);
     } finally {
@@ -136,10 +133,14 @@
 
   async function pollStats(): Promise<void> {
     try {
-      stats = await getDockerStats();
+      statsById = indexStats(await getDockerStats());
     } catch {
       // Keep the last sample; a transient docker hiccup should not clear the view.
     }
+  }
+
+  function indexStats(samples: DockerStats[]): Map<string, DockerStats> {
+    return new Map(samples.map((sample) => [sample.id, sample]));
   }
 
   onMount(() => {
@@ -251,32 +252,83 @@
         <p class="muted small">No containers found. Docker may be unavailable.</p>
       {:else if view === "cards"}
         <div class="cards">
-           {#each sortedContainers as container (container.id)}
-             <article class="card" onclick={() => void toggleSideTreeForContainer(container.id)}>
-               <header>
-                 <span class="name" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</span>
-                 <span class="state-pill" class:running={container.state === "running"}>
-                   {container.state}
-                 </span>
-               </header>
-               <p class="image" title={container.image}>{container.image}</p>
-               {#if container.composeProject}
-                 <p class="image compose">
-                   {container.composeProject}{container.composeService
-                     ? `/${container.composeService}`
-                     : ""}
-                 </p>
-               {/if}
-               <dl>
-                 <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
-                 <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
-                 <div><dt>Mounts</dt><dd>{container.mounts.length}</dd></div>
-                 {#if container.created !== undefined}
-                   <div><dt>Created</dt><dd>{formatAgo(container.created / 1e6)}</dd></div>
-                 {/if}
-               </dl>
-             </article>
-           {/each}
+          {#each sortedContainers as container (container.id)}
+            {@const sample = statsById.get(container.id)}
+            <article class="card">
+              <header>
+                <span class="name" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</span>
+                <span class="state-pill" class:running={container.state === "running"}>
+                  {container.state}
+                </span>
+              </header>
+              <p class="image" title={container.image}>{container.image}</p>
+              {#if container.composeProject}
+                <p class="image compose">
+                  {container.composeProject}{container.composeService
+                    ? `/${container.composeService}`
+                    : ""}
+                </p>
+              {/if}
+              <dl>
+                <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
+                <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
+                <div><dt>Mounts</dt><dd>{container.mounts.length}</dd></div>
+                {#if container.created !== undefined}
+                  <div><dt>Created</dt><dd>{formatAgo(container.created / 1e6)}</dd></div>
+                {/if}
+              </dl>
+              {#if sample}
+                <div class="card-meters">
+                  <span class="meter">
+                    <span class="meter-label">CPU {sample.cpuPercent.toFixed(1)}%</span>
+                    <span class="meter-track">
+                      <span class="meter-fill cpu" style="width: {percent(sample.cpuPercent, 100)}%"></span>
+                    </span>
+                  </span>
+                  <span class="meter">
+                    <span class="meter-label">MEM {formatBytes(sample.memUsed)} / {formatBytes(sample.memLimit)}</span>
+                    <span class="meter-track">
+                      <span class="meter-fill mem" style="width: {percent(sample.memUsed, sample.memLimit)}%"></span>
+                    </span>
+                  </span>
+                </div>
+              {/if}
+              {#if scanId && (container.overlayUpper || container.overlayLower || container.overlayMerged)}
+                <p class="overlay-links">
+                  {#if container.overlayUpper}
+                    <button
+                      type="button"
+                      class="node-link"
+                      title="Explore overlay upper layer"
+                      onclick={() => void exploreOverlay(scanId, container.id, "upper")}
+                    >
+                      Upper
+                    </button>
+                  {/if}
+                  {#if container.overlayLower}
+                    <button
+                      type="button"
+                      class="node-link"
+                      title="Explore overlay lower layers"
+                      onclick={() => void exploreOverlay(scanId, container.id, "lower")}
+                    >
+                      Lower
+                    </button>
+                  {/if}
+                  {#if container.overlayMerged}
+                    <button
+                      type="button"
+                      class="node-link"
+                      title="Explore merged overlay"
+                      onclick={() => void exploreOverlay(scanId, container.id, "merged")}
+                    >
+                      Merged
+                    </button>
+                  {/if}
+                </p>
+              {/if}
+            </article>
+          {/each}
         </div>
       {:else}
         <div class="table-wrap">
@@ -289,10 +341,16 @@
                 <th class="num">Size RW</th>
                 <th class="num">Created</th>
                 <th class="num">Mounts</th>
+                <th class="num">CPU</th>
+                <th class="num">MEM</th>
+                {#if scanId}
+                  <th class="num">Overlay</th>
+                {/if}
               </tr>
             </thead>
             <tbody>
               {#each sortedContainers as container (container.id)}
+                {@const sample = statsById.get(container.id)}
                 <tr>
                   <td class="ellipsis" title={container.displayName ?? container.name}>
                     {container.displayName ?? container.name}
@@ -312,46 +370,58 @@
                     {/if}
                   </td>
                   <td class="num">{container.mounts.length}</td>
+                  <td class="num">{sample ? `${sample.cpuPercent.toFixed(1)}%` : "—"}</td>
+                  <td class="num">
+                    {#if sample}
+                      {formatBytes(sample.memUsed)}
+                    {:else}
+                      —
+                    {/if}
+                  </td>
+                  {#if scanId}
+                    <td class="num">
+                      {#if container.overlayUpper}
+                        <button
+                          type="button"
+                          class="node-link"
+                          title="Explore overlay upper layer"
+                          onclick={() => void exploreOverlay(scanId, container.id, "upper")}
+                        >
+                          Upper
+                        </button>
+                      {:else}
+                        —
+                      {/if}
+                      {#if container.overlayLower}
+                        <button
+                          type="button"
+                          class="node-link"
+                          title="Explore overlay lower layers"
+                          onclick={() => void exploreOverlay(scanId, container.id, "lower")}
+                        >
+                          Lower
+                        </button>
+                      {/if}
+                      {#if container.overlayMerged}
+                        <button
+                          type="button"
+                          class="node-link"
+                          title="Explore merged overlay"
+                          onclick={() => void exploreOverlay(scanId, container.id, "merged")}
+                        >
+                          Merged
+                        </button>
+                      {/if}
+                      {#if !container.overlayUpper && !container.overlayLower && !container.overlayMerged}
+                        —
+                      {/if}
+                    </td>
+                  {/if}
                 </tr>
               {/each}
             </tbody>
           </table>
         </div>
-      {/if}
-    </section>
-
-    <section class="block">
-      <h3>Stats <span class="muted">live · 2s</span></h3>
-      {#if stats.length === 0}
-        <p class="muted small">No running containers report stats.</p>
-      {:else}
-        <ul class="stats">
-          {#each stats as sample (sample.id)}
-            <li>
-              <span class="stat-name" title={sample.name}>{sample.name}</span>
-              <span class="meter">
-                <span class="meter-label">CPU {sample.cpuPercent.toFixed(1)}%</span>
-                <span class="meter-track">
-                  <span
-                    class="meter-fill cpu"
-                    style="width: {percent(sample.cpuPercent, 100)}%"
-                  ></span>
-                </span>
-              </span>
-              <span class="meter">
-                <span class="meter-label">
-                  MEM {formatBytes(sample.memUsed)} / {formatBytes(sample.memLimit)}
-                </span>
-                <span class="meter-track">
-                  <span
-                    class="meter-fill mem"
-                    style="width: {percent(sample.memUsed, sample.memLimit)}%"
-                  ></span>
-                </span>
-              </span>
-            </li>
-          {/each}
-        </ul>
       {/if}
     </section>
 
@@ -416,8 +486,8 @@
     </section>
 
     <section class="block">
-      <h3>Mounts <span class="muted">{mounts.length}</span></h3>
-      {#if mounts.length === 0}
+      <h3>Mounts <span class="muted">{allMounts.length}</span></h3>
+      {#if allMounts.length === 0}
         <p class="muted small">No mounts reported.</p>
       {:else}
         <div class="table-wrap">
@@ -433,7 +503,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each mounts as mount (mountKey(mount))}
+              {#each allMounts as mount (mountKey(mount))}
                 <tr>
                   <td class="ellipsis" title={mount.containerName}>{mount.containerName}</td>
                   <td>{mount.kind}</td>
@@ -458,93 +528,6 @@
                     {/if}
                   </td>
                   <td class="num">{mount.size === undefined ? "—" : formatBytes(mount.size)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/if}
-    </section>
-
-    <section class="block">
-      <h3>Overlay layers <span class="muted">{containers.length}</span></h3>
-      {#if containers.length === 0}
-        <p class="muted small">No containers found. Docker may be unavailable.</p>
-      {:else}
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Image</th>
-                <th>State</th>
-                <th class="num">RW</th>
-                <th class="num">Upper</th>
-                <th class="num">Lower</th>
-                <th class="num">Merged</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each sortedContainers as container (container.id)}
-                <tr>
-                  <td class="ellipsis" title={container.displayName ?? container.name}>
-                    {container.displayName ?? container.name}
-                  </td>
-                  <td class="ellipsis" title={container.image}>{container.image}</td>
-                  <td>
-                    <span class="state-pill" class:running={container.state === "running"}>
-                      {container.state}
-                    </span>
-                  </td>
-                  <td class="num">{formatBytes(container.sizeRw ?? 0)}</td>
-                  {#if scanId}
-                    {#if container.overlayUpper}
-                      <td class="num">
-                        <button
-                          type="button"
-                          class="node-link"
-                          title="Explore overlay upper layer"
-                          onclick={() => void exploreOverlay(scanId, container.id, "upper")}
-                        >
-                          Explore
-                        </button>
-                      </td>
-                    {:else}
-                      <td class="num">—</td>
-                    {/if}
-                    {#if container.overlayLower}
-                      <td class="num">
-                        <button
-                          type="button"
-                          class="node-link"
-                          title="Explore overlay lower layers"
-                          onclick={() => void exploreOverlay(scanId, container.id, "lower")}
-                        >
-                          Explore
-                        </button>
-                      </td>
-                    {:else}
-                      <td class="num">—</td>
-                    {/if}
-                    {#if container.overlayMerged}
-                      <td class="num">
-                        <button
-                          type="button"
-                          class="node-link"
-                          title="Explore merged overlay"
-                          onclick={() => void exploreOverlay(scanId, container.id, "merged")}
-                        >
-                          Explore
-                        </button>
-                      </td>
-                    {:else}
-                      <td class="num">—</td>
-                    {/if}
-                  {:else}
-                    <td class="num">—</td>
-                    <td class="num">—</td>
-                    <td class="num">—</td>
-                  {/if}
                 </tr>
               {/each}
             </tbody>
@@ -749,27 +732,17 @@
     border-color: var(--accent);
   }
 
-  .stats {
+  .card-meters {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    margin: 0;
-    padding: 0;
-    list-style: none;
+    gap: 0.3rem;
+    margin-top: 0.5rem;
   }
 
-  .stats li {
-    display: grid;
-    grid-template-columns: minmax(6rem, 12rem) 1fr 1fr;
-    align-items: center;
-    gap: 0.75rem;
-    font-size: 0.78rem;
-  }
-
-  .stat-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .overlay-links {
+    display: flex;
+    gap: 0.35rem;
+    margin: 0.5rem 0 0;
   }
 
   .meter {

@@ -230,7 +230,12 @@ export const openApiDocument = {
     },
     "/docker/status": { get: { tags: ["docker"], summary: "Docker availability", responses: ok } },
     "/docker/containers": {
-      get: { tags: ["docker"], summary: "Containers + sizes + mounts", responses: ok },
+      get: {
+        tags: ["docker"],
+        summary: "Containers + sizes + mounts (mounts correlated when ?scan=<id> is given)",
+        parameters: [{ name: "scan", in: "query", schema: { type: "string" } }],
+        responses: ok,
+      },
     },
     "/docker/mounts": {
       get: {

@@ -10,7 +10,6 @@ import type {
   HostMountsResponse,
   ImageInfo,
   LocateMatch,
-  MountInfo,
   NodeKind,
   NodeRecord,
   ScanProgress,
@@ -341,8 +340,11 @@ export function runGc(keep: number): Promise<GcResult> {
   });
 }
 
-export async function getDockerContainers(): Promise<ContainerInfo[]> {
-  const body = await request<{ containers: ContainerInfo[] }>("/docker/containers");
+export async function getDockerContainers(scanId?: string): Promise<ContainerInfo[]> {
+  const suffix = scanId === undefined ? "" : `?scan=${encodeURIComponent(scanId)}`;
+  const body = await request<{ containers: ContainerInfo[] }>(
+    `/docker/containers${suffix}`,
+  );
   return body.containers;
 }
 
@@ -361,12 +363,6 @@ export async function getDockerLocate(query: string): Promise<LocateMatch[]> {
     `/docker/locate?q=${encodeURIComponent(query)}`,
   );
   return body.matches;
-}
-
-export async function getDockerMounts(scanId?: string): Promise<MountInfo[]> {
-  const suffix = scanId === undefined ? "" : `?scan=${encodeURIComponent(scanId)}`;
-  const body = await request<{ mounts: MountInfo[] }>(`/docker/mounts${suffix}`);
-  return body.mounts;
 }
 
 export async function getDockerStats(): Promise<DockerStats[]> {

@@ -215,11 +215,27 @@ impl Daemon {
             methods::DOCKER_CONTAINERS => {
                 // Prefer sizes, but fall back to the size-free list so a slow
                 // size computation cannot empty the whole panel.
-                let containers = self
+                let params: ContainersParam = params(req)?;
+                let mut containers = self
                     .docker
                     .containers()
                     .or_else(|_| self.docker.containers_raw())
                     .unwrap_or_default();
+                // A single fetch serves both the container list and its mounts:
+                // when a snapshot is given, correlate the mounts already carried
+                // by each container instead of re-listing containers for mounts.
+                if let Some(id) = params.scan {
+                    let reader = self.open(&id)?;
+                    let host_root = crate::docker::host_root();
+                    let mut flat: Vec<_> =
+                        containers.iter().flat_map(|c| c.mounts.clone()).collect();
+                    flat = crate::query::correlate_mounts(&reader, flat, &host_root);
+                    let mut next = flat.into_iter();
+                    for container in &mut containers {
+                        let len = container.mounts.len();
+                        container.mounts = next.by_ref().take(len).collect();
+                    }
+                }
                 to_value(json!({ "containers": containers }))
             }
             methods::DOCKER_MOUNTS => to_value(json!({ "mounts": self.docker.mounts().unwrap_or_default() })),
@@ -287,6 +303,15 @@ struct ScansCreate {
 #[derive(Deserialize)]
 struct IdParam {
     id: String,
+}
+
+/// `docker.containers` parameters. `scan` is optional: when set, the mounts
+/// already carried by each container are correlated against that snapshot in
+/// the same call, so the client needs a single request.
+#[derive(Deserialize)]
+struct ContainersParam {
+    #[serde(default)]
+    scan: Option<String>,
 }
 
 #[derive(Deserialize)]

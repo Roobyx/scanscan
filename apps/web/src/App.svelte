@@ -725,7 +725,6 @@
           <DockerPanel
             scanId={selectedId ?? undefined}
             onreveal={(nodeId) => { scopeId = nodeId; }}
-            onToggleSideTree={(nodeId) => { sideTreeNodeId = nodeId; }}
           />
         </div>
         {#if sideTreeNodeId !== null}
