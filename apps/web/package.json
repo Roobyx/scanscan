@@ -1,6 +1,6 @@
 {
   "name": "@scanscan/web",
-  "version": "1.15.2",
+  "version": "1.15.4",
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,6 +1,5 @@
-import { describe, expect, test } from "vitest";
-
 import type { HistogramBucket } from "@scanscan/api-types";
+import { describe, expect, test } from "vitest";
 import { FILE_TYPES, groupByFileType, groupOfExtension } from "./file-types.js";
 
 function bucket(key: string, count: number, size: number): HistogramBucket {

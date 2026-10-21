@@ -1,8 +1,7 @@
+import type { HostMountsResponse } from "@scanscan/api-types";
 import { PROTOCOL_VERSION } from "@scanscan/api-types";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-
-import type { HostMountsResponse } from "@scanscan/api-types";
 import type { ServerConfig } from "./config.js";
 import type { CoreApi } from "./core/client.js";
 import { drivesFromMounts } from "./drives.js";
@@ -80,9 +79,7 @@ export function createApp({ config, core, scheduler, startedAt = Date.now() }: A
     } catch (error) {
       return c.json({
         hostRoot,
-        drives: drivesFromMounts([
-          { path: "/", containerPath: hostRoot, device: "", fstype: "" },
-        ]),
+        drives: drivesFromMounts([{ path: "/", containerPath: hostRoot, device: "", fstype: "" }]),
         warning: String(error),
       });
     }
@@ -463,8 +460,25 @@ export function createApp({ config, core, scheduler, startedAt = Date.now() }: A
 
   app.get("/api/v1/docker/locate", async (c) => {
     try {
+      return c.json(await core.call("docker.locate", { query: c.req.query("q") ?? "" }));
+    } catch (error) {
+      return coreError(String(error));
+    }
+  });
+
+  app.get("/api/v1/docker/overlay-contents", async (c) => {
+    try {
+      const scan = c.req.query("scan");
+      const container = c.req.query("container");
+      if (!scan || !container) {
+        return c.json({ error: "scan and container are required" }, 400);
+      }
       return c.json(
-        await core.call("docker.locate", { query: c.req.query("q") ?? "" }),
+        await core.call("docker.overlayContents", {
+          id: scan,
+          container,
+          layer: c.req.query("layer") ?? "",
+        }),
       );
     } catch (error) {
       return coreError(String(error));

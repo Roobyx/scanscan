@@ -2,6 +2,7 @@
   import type { DriveInfo } from "@scanscan/api-types";
 
   import { formatBytes, percent } from "../lib/format.js";
+  import { usageColor } from "../lib/color.js";
 
   interface Props {
     drive: DriveInfo | null;
@@ -13,6 +14,7 @@
   const free = $derived.by(() => drive?.freeBytes ?? 0);
   const used = $derived.by(() => drive?.usedBytes ?? Math.max(0, total - free));
   const usedPct = $derived.by(() => percent(used, total));
+  const color = $derived.by(() => usageColor(usedPct));
   const label = $derived.by(() =>
     total > 0
       ? `${formatBytes(free)} free of ${formatBytes(total)} · ${usedPct.toFixed(0)}% used`
@@ -30,9 +32,7 @@
     <span class="meter">
       <span
         class="fill"
-        class:tight={usedPct >= 90}
-        class:critical={usedPct >= 97}
-        style="width: {usedPct}%"
+        style="width: {usedPct}%; background: {color}"
       ></span>
     </span>
     <span class="text">{label}</span>
@@ -60,14 +60,6 @@
     height: 100%;
     border-radius: 999px;
     background: var(--accent);
-  }
-
-  .meter .fill.tight {
-    background: var(--warn);
-  }
-
-  .meter .fill.critical {
-    background: var(--err);
   }
 
   .text {

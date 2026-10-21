@@ -241,6 +241,26 @@ impl Daemon {
                 );
                 to_value(json!({ "mounts": mounts }))
             }
+            methods::DOCKER_OVERLAY_CONTENTS => {
+                let p: OverlayContentsParam = params(req)?;
+                let layer = crate::docker::OverlayLayer::parse(&p.layer).ok_or_else(|| {
+                    RpcError::new(
+                        codes::INVALID_PARAMS,
+                        format!("unknown overlay layer '{}'", p.layer),
+                    )
+                })?;
+                let reader = self.open(&p.id)?;
+                let dirs = self
+                    .docker
+                    .overlay_layer_dirs(&p.container, layer)
+                    .unwrap_or_default();
+                let contents = crate::query::overlay_contents(
+                    &reader,
+                    &crate::docker::host_root(),
+                    &dirs,
+                );
+                to_value(contents)
+            }
             "docker.status" => to_value(self.docker.status()),
             _ => Err(RpcError::new(
                 codes::METHOD_NOT_FOUND,
@@ -267,6 +287,17 @@ struct ScansCreate {
 #[derive(Deserialize)]
 struct IdParam {
     id: String,
+}
+
+#[derive(Deserialize)]
+struct OverlayContentsParam {
+    /// Snapshot id backing the index.
+    id: String,
+    /// Container whose overlay layer is explored.
+    container: String,
+    /// `upper`, `lower` or `merged`; an empty value means `upper`.
+    #[serde(default)]
+    layer: String,
 }
 
 #[derive(Deserialize)]

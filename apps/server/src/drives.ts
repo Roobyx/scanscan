@@ -1,4 +1,4 @@
-import { statSync, statfsSync } from "node:fs";
+import { statfsSync, statSync } from "node:fs";
 
 import type { DriveInfo, HostMount } from "@scanscan/api-types";
 

@@ -44,3 +44,36 @@ export function colorForExtension(ext: string): string {
 }
 
 export type ColorMode = "ext" | "size";
+
+/** Linear RGB interpolation for drive usage percentage with temperature stops. */
+export function usageColor(usedPct: number): string {
+  const t = Math.max(0, Math.min(1, usedPct / 100));
+
+  // Stop points: (normalized t, r, g, b)
+  const stops: ReadonlyArray<readonly [number, number, number, number]> = [
+    [0.0, 0, 128, 0], // 0% : pure green
+    [0.6, 0, 128, 0], // 60%: green (flat segment)
+    [0.7, 255, 182, 52], // 70%: yellow
+    [0.8, 255, 182, 52], // 80%: yellow (flat segment)
+    [0.85, 191, 0, 0], // 85%: red
+    [1.0, 128, 0, 0], // 100%: deep red
+  ];
+
+  let previous: readonly [number, number, number, number] | undefined;
+  for (const current of stops) {
+    if (previous !== undefined) {
+      const [t0, r0, g0, b0] = previous;
+      const [t1, r1, g1, b1] = current;
+      if (t >= t0 && t <= t1) {
+        const weight = t0 === t1 ? 0 : (t - t0) / (t1 - t0);
+        const r = Math.round(r0 + (r1 - r0) * weight);
+        const g = Math.round(g0 + (g1 - g0) * weight);
+        const b = Math.round(b0 + (b1 - b0) * weight);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+    }
+    previous = current;
+  }
+
+  return "#000000";
+}

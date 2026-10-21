@@ -95,7 +95,11 @@
     if (mount.node !== undefined) onreveal?.(mount.node);
   }
 
-async function exploreOverlay(scanId: string, containerId: string, layer: string): Promise<void> {
+  async function exploreOverlay(
+    scanId: string,
+    containerId: string,
+    layer: "upper" | "lower" | "merged" | "",
+  ): Promise<void> {
     try {
       const result = await getDockerOverlayContents(scanId, containerId, layer);
       if (result.nodeId !== null) {
@@ -207,8 +211,8 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
       <div class="container-controls">
         <h3>Containers <span class="muted">{containers.length}</span></h3>
         <div class="container-toolbar">
-          <label class="toolbar-label">View</label>
-          <div class="toggle-group" role="group" aria-label="Container view">
+          <span class="toolbar-label" id="view-label">View</span>
+          <div class="toggle-group" role="group" aria-labelledby="view-label">
             <button
               type="button"
               class:active={view === "cards"}
@@ -226,8 +230,8 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
               Table
             </button>
           </div>
-          <label class="toolbar-label">Sort by</label>
-          <select bind:value={sortBy} aria-label="Container sort field">
+          <label class="toolbar-label" for="container-sort">Sort by</label>
+          <select id="container-sort" bind:value={sortBy}>
             <option value="size">Size</option>
             <option value="created">Date created</option>
             <option value="state">Running state</option>
@@ -289,14 +293,16 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
             <tbody>
               {#each sortedContainers as container (container.id)}
                 <tr>
-                   <td class="ellipsis" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</td>
-                   <td>
-                     <span class="state-pill" class:running={container.state === "running"}>
-                       {container.state}
-                     </span>
-                   </td>
-                   <td class="ellipsis" title={container.image}>{container.image}</td>
-                   <td class="num">{formatBytes(container.sizeRw ?? 0)}</td>
+                  <td class="ellipsis" title={container.displayName ?? container.name}>
+                    {container.displayName ?? container.name}
+                  </td>
+                  <td>
+                    <span class="state-pill" class:running={container.state === "running"}>
+                      {container.state}
+                    </span>
+                  </td>
+                  <td class="ellipsis" title={container.image}>{container.image}</td>
+                  <td class="num">{formatBytes(container.sizeRw ?? 0)}</td>
                   <td class="num">
                     {#if container.created !== undefined}
                       {formatAgo(container.created / 1e6)}
@@ -408,7 +414,7 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
       {/if}
     </section>
 
-<section class="block">
+    <section class="block">
       <h3>Mounts <span class="muted">{mounts.length}</span></h3>
       {#if mounts.length === 0}
         <p class="muted small">No mounts reported.</p>
@@ -460,7 +466,7 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
     </section>
 
     <section class="block">
-      <h3>Containers <span class="muted">{containers.length}</span></h3>
+      <h3>Overlay layers <span class="muted">{containers.length}</span></h3>
       {#if containers.length === 0}
         <p class="muted small">No containers found. Docker may be unavailable.</p>
       {:else}
@@ -480,8 +486,10 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
             <tbody>
               {#each sortedContainers as container (container.id)}
                 <tr>
-                   <td class="ellipsis" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</td>
-                   <td class="ellipsis" title={container.image}>{container.image}</td>
+                  <td class="ellipsis" title={container.displayName ?? container.name}>
+                    {container.displayName ?? container.name}
+                  </td>
+                  <td class="ellipsis" title={container.image}>{container.image}</td>
                   <td>
                     <span class="state-pill" class:running={container.state === "running"}>
                       {container.state}
@@ -495,7 +503,7 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
                           type="button"
                           class="node-link"
                           title="Explore overlay upper layer"
-                          onclick={() => void exploreOverlay(scanId, container.id, "")}
+                          onclick={() => void exploreOverlay(scanId, container.id, "upper")}
                         >
                           Explore
                         </button>
@@ -541,9 +549,6 @@ async function exploreOverlay(scanId: string, containerId: string, layer: string
             </tbody>
           </table>
         </div>
-      {/if}
-    </section>
-  </div>
       {/if}
     </section>
   {/if}

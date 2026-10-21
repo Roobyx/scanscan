@@ -17,6 +17,29 @@ use crate::error::{CoreError, Result};
 /// sizes and can take many seconds on a busy host.
 const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Which overlay layer of a container to explore.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayLayer {
+    /// The writable layer, unique to one container.
+    Upper,
+    /// The read-only image layers, shared between containers.
+    Lower,
+    /// The merged view Docker assembles from upper and lower.
+    Merged,
+}
+
+impl OverlayLayer {
+    /// Parse the wire value; an empty string means the upper layer.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "" | "upper" => Some(Self::Upper),
+            "lower" => Some(Self::Lower),
+            "merged" => Some(Self::Merged),
+            _ => None,
+        }
+    }
+}
+
 /// Availability of the Docker integration.
 #[derive(Debug, Clone, Serialize)]
 pub struct DockerStatus {
@@ -167,6 +190,40 @@ impl DockerCollector {
             }
         });
         Ok(out)
+    }
+
+    /// Overlay layer directories backing a container.
+    ///
+    /// `LowerDir` is a colon-separated list of shared image layers, so the lower
+    /// layer yields several directories; the upper and merged layers yield one.
+    /// The `/diff` suffix Docker appends to `UpperDir` is stripped so the
+    /// directory matches the one the scanner indexed.
+    pub fn overlay_layer_dirs(
+        &self,
+        container_id: &str,
+        layer: OverlayLayer,
+    ) -> Result<Vec<String>> {
+        let containers = self.containers_detailed()?;
+        let container = containers
+            .iter()
+            .find(|c| c.id == container_id || c.id.starts_with(container_id))
+            .ok_or_else(|| CoreError::Scan(format!("unknown container '{container_id}'")))?;
+
+        let raw = match layer {
+            OverlayLayer::Upper => container.overlay_upper.clone(),
+            OverlayLayer::Lower => container.overlay_lower.clone(),
+            OverlayLayer::Merged => container.overlay_merged.clone(),
+        };
+        Ok(raw
+            .map(|value| {
+                value
+                    .split(':')
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(|part| layer_dir(part).unwrap_or_else(|| part.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     /// Find the container(s) that own a host path or id fragment.
@@ -600,6 +657,15 @@ mod tests {
             map.get("/var/lib/docker/overlay2/aaa").map(String::as_str),
             Some("web (nginx)")
         );
+    }
+
+    #[test]
+    fn overlay_layer_parses_known_values() {
+        assert_eq!(OverlayLayer::parse(""), Some(OverlayLayer::Upper));
+        assert_eq!(OverlayLayer::parse("upper"), Some(OverlayLayer::Upper));
+        assert_eq!(OverlayLayer::parse("lower"), Some(OverlayLayer::Lower));
+        assert_eq!(OverlayLayer::parse("merged"), Some(OverlayLayer::Merged));
+        assert_eq!(OverlayLayer::parse("bogus"), None);
     }
 
     #[test]

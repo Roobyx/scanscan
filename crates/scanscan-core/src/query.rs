@@ -3,10 +3,13 @@
 //! All operations scan contiguous subtree id ranges, so folder-scoped work is
 //! bounded by the subtree rather than the whole snapshot.
 
-use scanscan_ipc::{MountInfo, NodeKind, NodeRecord, Tile, TilesResponse};
+use scanscan_ipc::{ContainerOverlayContents, MountInfo, NodeKind, NodeRecord, Tile, TilesResponse};
 use serde::Serialize;
 
 use crate::index::{flags, IndexReader, Kind};
+
+/// Maximum number of children returned for an explored overlay layer.
+const OVERLAY_CHILD_LIMIT: usize = 500;
 
 /// Which size metric a query ranks by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1020,6 +1023,53 @@ pub fn correlate_mounts(
         .collect()
 }
 
+/// Summarise the indexed contents of a container's overlay layer.
+///
+/// `layer_dirs` holds the host-side layer directories of the layer being
+/// explored (one for the upper/merged layer, several for the shared lower
+/// layers). Each directory is resolved against the snapshot, and the result
+/// aggregates the resolved subtrees.
+pub fn overlay_contents(
+    reader: &IndexReader,
+    host_root: &str,
+    layer_dirs: &[String],
+) -> ContainerOverlayContents {
+    let index = child_index(reader);
+    let engine = QueryEngine::new(reader);
+    let mut nodes: Vec<u32> = Vec::new();
+    let mut total_size = 0u64;
+
+    for dir in layer_dirs {
+        let container_path = if dir == "/" {
+            host_root.to_string()
+        } else {
+            format!("{host_root}{dir}")
+        };
+        let Some(node) = resolve_with(&index, reader, &container_path) else {
+            continue;
+        };
+        if nodes.contains(&node) {
+            continue;
+        }
+        nodes.push(node);
+        total_size = total_size.saturating_add(engine.subtree_bytes(node, Metric::Alloc));
+    }
+
+    let mut children: Vec<NodeRecord> = Vec::new();
+    for node in &nodes {
+        let (_, items) = engine.children(*node, SortBy::Size, OVERLAY_CHILD_LIMIT, 0);
+        children.extend(items.iter().map(|view| view.to_record()));
+    }
+    children.sort_by(|a, b| b.size_alloc.cmp(&a.size_alloc).then_with(|| a.name.cmp(&b.name)));
+    children.truncate(OVERLAY_CHILD_LIMIT);
+
+    ContainerOverlayContents {
+        node_id: nodes.first().copied(),
+        total_size,
+        children,
+    }
+}
+
 fn child_index(reader: &IndexReader) -> std::collections::HashMap<u32, Vec<u32>> {
     let mut index: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
     for id in 0..reader.len() {
@@ -1349,5 +1399,112 @@ mod tests {
         assert!(result.added.is_empty());
         assert!(result.removed.is_empty());
         assert_eq!(result.totals.delta, 0);
+    }
+
+    /// Builds a snapshot rooted at `host` holding two overlay2 layer dirs:
+    /// `var/lib/docker/overlay2/abc` (with a `diff` and a `work` file) and
+    /// `var/lib/docker/overlay2/def` (with a single `base.bin` file).
+    fn build_overlay_reader(dir: &std::path::Path) -> IndexReader {
+        use crate::index::{IndexWriter, Kind as IKind, ManifestSeed, NodeInput, NO_PARENT};
+
+        fn push(
+            w: &mut IndexWriter,
+            parent: u32,
+            name: &str,
+            kind: IKind,
+            children: u32,
+            size: u64,
+        ) -> u32 {
+            w.push(NodeInput {
+                parent,
+                name,
+                kind,
+                flags: 0,
+                children,
+                size_app: size,
+                size_alloc: size,
+                mtime_ms: 0,
+                uid: 0,
+                gid: 0,
+                mode: 0,
+                ino: 0,
+                dev: 0,
+            })
+            .unwrap()
+        }
+
+        let mut w = IndexWriter::create(dir).unwrap();
+        let host = push(&mut w, NO_PARENT, "host", IKind::Directory, 1, 0);
+        let var = push(&mut w, host, "var", IKind::Directory, 1, 0);
+        let lib = push(&mut w, var, "lib", IKind::Directory, 1, 0);
+        let docker = push(&mut w, lib, "docker", IKind::Directory, 1, 0);
+        let overlay2 = push(&mut w, docker, "overlay2", IKind::Directory, 2, 0);
+
+        let abc = push(&mut w, overlay2, "abc", IKind::Directory, 2, 0);
+        let diff = push(&mut w, abc, "diff", IKind::Directory, 1, 0);
+        push(&mut w, diff, "payload.bin", IKind::File, 0, 8_000);
+        push(&mut w, abc, "work", IKind::File, 0, 4_000);
+
+        let def = push(&mut w, overlay2, "def", IKind::Directory, 1, 0);
+        push(&mut w, def, "base.bin", IKind::File, 0, 2_000);
+
+        w.finish(ManifestSeed {
+            id: "t".into(),
+            parent_id: None,
+            roots: vec!["host".into()],
+            started_at_ms: 0,
+        })
+        .unwrap();
+        IndexReader::open(dir).unwrap()
+    }
+
+    #[test]
+    fn overlay_contents_resolves_layer_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reader = build_overlay_reader(&tmp.path().join("snap"));
+
+        let contents = overlay_contents(
+            &reader,
+            "/host",
+            &["/var/lib/docker/overlay2/abc".to_string()],
+        );
+        assert_eq!(contents.node_id, Some(5));
+        assert_eq!(contents.total_size, 12_000);
+        let names: Vec<&str> = contents.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["diff", "work"]);
+    }
+
+    #[test]
+    fn overlay_contents_aggregates_shared_lower_layers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reader = build_overlay_reader(&tmp.path().join("snap"));
+
+        let contents = overlay_contents(
+            &reader,
+            "/host",
+            &[
+                "/var/lib/docker/overlay2/abc".to_string(),
+                "/var/lib/docker/overlay2/def".to_string(),
+            ],
+        );
+        assert_eq!(contents.node_id, Some(5));
+        assert_eq!(contents.total_size, 14_000);
+        let names: Vec<&str> = contents.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["diff", "work", "base.bin"]);
+    }
+
+    #[test]
+    fn overlay_contents_reports_unindexed_layer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reader = build_overlay_reader(&tmp.path().join("snap"));
+
+        let contents = overlay_contents(
+            &reader,
+            "/host",
+            &["/var/lib/docker/overlay2/missing".to_string()],
+        );
+        assert_eq!(contents.node_id, None);
+        assert_eq!(contents.total_size, 0);
+        assert!(contents.children.is_empty());
     }
 }

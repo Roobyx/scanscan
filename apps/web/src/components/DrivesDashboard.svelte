@@ -3,6 +3,7 @@
   import { createScan, errorMessage } from "../lib/api.js";
   import { formatAgo, formatBytes, percent } from "../lib/format.js";
   import { isSystemMount, mountLabel, orderMounts } from "../lib/mounts.js";
+  import { usageColor } from "../lib/color.js";
 
   import Icon from "./Icon.svelte";
   import Spinner from "./Spinner.svelte";
@@ -162,9 +163,7 @@
           <div class="meter" role="img" aria-label="{card.usedPct.toFixed(0)} percent used">
             <span
               class="fill"
-              class:tight={card.usedPct >= 90}
-              class:critical={card.usedPct >= 97}
-              style="width: {card.usedPct}%"
+              style="width: {card.usedPct}%; background: {usageColor(card.usedPct)}"
             ></span>
           </div>
           <p class="cap">
@@ -340,14 +339,6 @@
     height: 100%;
     border-radius: 999px;
     background: var(--accent);
-  }
-
-  .meter .fill.tight {
-    background: var(--warn);
-  }
-
-  .meter .fill.critical {
-    background: var(--err);
   }
 
   .meter.unknown {

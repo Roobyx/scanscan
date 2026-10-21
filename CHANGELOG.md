@@ -2,16 +2,27 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
-## [1.15.2] - 2026-10-21
+## [1.15.4] - 2026-10-21
+
+### Fixed
+
+- **The web build was broken.** The explorable-containers work added `getDockerOverlayContents`
+  to the Docker panel without adding the function to the web API client, so `vite build` failed
+  with a missing export. The client function, the `GET /api/v1/docker/overlay-contents` server
+  route and the `docker.overlayContents` core method are now wired up end to end, so a container's
+  upper, lower and merged overlay layers can be explored from the Docker panel.
+- **`usageColor` failed type checking.** The colour-stop lookup indexed the stop array directly,
+  which `noUncheckedIndexedAccess` rejects; it now walks the stops without indexing.
 
 ### Added
 
-- **Docker container views and sorting.** The containers section now offers a Cards or Table view, and containers can be sorted by size, date created, or running state, with a sort-direction toggle.
-- **`ContainerInfo.created`.** The Docker container summary now exposes the container creation timestamp (from the Engine API `Created` field), surfaced as a "Created" age in the UI.
+- **`ContainerOverlayContents` IPC type** and the `docker.overlayContents` core method, which
+  resolve a container's overlay layer directories against a snapshot and report the layer node,
+  its total size and its children.
 
 ### Changed
 
-- `@scanscan/web` 1.15.0 → 1.15.1; `@scanscan/api-types` 1.13.0 → 1.13.1; workspace crates 1.15.1 → 1.15.2.
+- `@scanscan/web` 1.15.2 → 1.15.4; `@scanscan/api-types` 1.13.2 → 1.13.3; `@scanscan/server` 1.15.3 → 1.15.4; `@scanscan/site` 1.15.3 → 1.15.4; workspace crates 1.15.3 → 1.15.4.
 
 ## [1.15.3] - 2026-10-21
 
@@ -22,6 +33,17 @@ All notable changes to scanscan are documented here. Newest entries first.
 ### Changed
 
 - `@scanscan/web` 1.15.1 → 1.15.2; `@scanscan/api-types` 1.13.1 → 1.13.2; `@scanscan/server` 1.13.0 → 1.15.3; `@scanscan/site` 1.12.0 → 1.15.3; workspace crates 1.15.2 → 1.15.3.
+
+## [1.15.2] - 2026-10-21
+
+### Added
+
+- **Docker container views and sorting.** The containers section now offers a Cards or Table view, and containers can be sorted by size, date created, or running state, with a sort-direction toggle.
+- **`ContainerInfo.created`.** The Docker container summary now exposes the container creation timestamp (from the Engine API `Created` field), surfaced as a "Created" age in the UI.
+
+### Changed
+
+- `@scanscan/web` 1.15.0 → 1.15.1; `@scanscan/api-types` 1.13.0 → 1.13.1; workspace crates 1.15.1 → 1.15.2.
 
 ## [1.15.1] - 2026-10-20
 

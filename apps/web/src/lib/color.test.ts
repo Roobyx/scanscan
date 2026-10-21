@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { colorForExtension, colorForKey, extensionOf, hashString } from "./color.js";
+import { colorForKey, extensionOf, hashString, usageColor } from "./color.js";
 
 describe("hashString", () => {
   test("is deterministic and unsigned", () => {
@@ -27,9 +27,29 @@ describe("extensionOf", () => {
   });
 });
 
-describe("colorForExtension", () => {
-  test("is stable and falls back for empty extensions", () => {
-    expect(colorForExtension("png")).toBe(colorForExtension("png"));
-    expect(colorForExtension("")).toBe("#5b6577");
+describe("usageColor", () => {
+  test("returns exact stop colors at boundaries", () => {
+    expect(usageColor(0)).toBe("rgb(0, 128, 0)"); // 0% green
+    expect(usageColor(60)).toBe("rgb(0, 128, 0)"); // 60% green (flat)
+    expect(usageColor(70)).toBe("rgb(255, 182, 52)"); // 70% yellow
+    expect(usageColor(80)).toBe("rgb(255, 182, 52)"); // 80% yellow (flat)
+    expect(usageColor(85)).toBe("rgb(191, 0, 0)"); // 85% red
+    expect(usageColor(100)).toBe("rgb(128, 0, 0)"); // 100% deep red
+  });
+
+  test("interpolates between stops", () => {
+    const mid60 = usageColor(50); // between 0% and 60% (both green) -> still green
+    expect(mid60).toBe("rgb(0, 128, 0)");
+
+    const mid75 = usageColor(75); // between 70% yellow and 80% yellow -> yellow
+    expect(mid75).toBe("rgb(255, 182, 52)");
+
+    const mid82 = usageColor(82); // between 80% yellow and 85% red -> orange-ish
+    expect(mid82).toMatch(/^rgb\(2[0-9][0-9], [0-9]{1,3}, [0-9]{1,3}\)$/);
+  });
+
+  test("clamps input to [0, 100]", () => {
+    expect(usageColor(-10)).toBe(usageColor(0));
+    expect(usageColor(200)).toBe(usageColor(100));
   });
 });

@@ -26,9 +26,7 @@ export function mountLabel(path: string): string {
  * reported and the list does not jump between refreshes.
  */
 export function orderMounts<T extends { path: string }>(mounts: readonly T[]): T[] {
-  return [...mounts].sort(
-    (a, b) => Number(isSystemMount(a.path)) - Number(isSystemMount(b.path)),
-  );
+  return [...mounts].sort((a, b) => Number(isSystemMount(a.path)) - Number(isSystemMount(b.path)));
 }
 
 /** Label for a snapshot root, mapping container paths back to host mount names. */

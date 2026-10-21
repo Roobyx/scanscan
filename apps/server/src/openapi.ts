@@ -91,7 +91,12 @@ export const openApiDocument = {
     },
     "/scans/{id}": {
       get: { tags: ["scans"], summary: "Get a scan", parameters: [idParam], responses: ok },
-      delete: { tags: ["scans"], summary: "Delete a snapshot", parameters: [idParam], responses: ok },
+      delete: {
+        tags: ["scans"],
+        summary: "Delete a snapshot",
+        parameters: [idParam],
+        responses: ok,
+      },
     },
     "/scans/{id}/cancel": {
       post: { tags: ["scans"], summary: "Cancel a scan", parameters: [idParam], responses: ok },
@@ -108,7 +113,10 @@ export const openApiDocument = {
       get: {
         tags: ["tree"],
         summary: "List direct children",
-        parameters: [idParam, { name: "nodeId", in: "path", required: true, schema: { type: "integer" } }],
+        parameters: [
+          idParam,
+          { name: "nodeId", in: "path", required: true, schema: { type: "integer" } },
+        ],
         responses: ok,
       },
     },
@@ -129,11 +137,19 @@ export const openApiDocument = {
     "/scans/{id}/top": scanOp("Largest entries", [
       { name: "n", in: "query", schema: { type: "integer" } },
       { name: "kind", in: "query", schema: { type: "string", enum: ["file", "directory"] } },
-      { name: "metric", in: "query", schema: { type: "string", enum: ["alloc", "apparent", "items"] } },
+      {
+        name: "metric",
+        in: "query",
+        schema: { type: "string", enum: ["alloc", "apparent", "items"] },
+      },
     ]),
     "/scans/{id}/extensions": scanOp("Extension breakdown"),
     "/scans/{id}/histogram": scanOp("Histogram by dimension", [
-      { name: "dim", in: "query", schema: { type: "string", enum: ["ext", "age", "owner", "size"] } },
+      {
+        name: "dim",
+        in: "query",
+        schema: { type: "string", enum: ["ext", "age", "owner", "size"] },
+      },
     ]),
     "/scans/{id}/heatmap": scanOp("Age x size heatmap"),
     "/scans/{id}/owners": scanOp("Owner breakdown"),
@@ -146,13 +162,20 @@ export const openApiDocument = {
       { name: "size_max", in: "query", schema: { type: "integer" } },
     ]),
     "/scans/{id}/duplicates": scanOp("Metadata duplicates", [
-      { name: "mode", in: "query", schema: { type: "string", enum: ["name+size", "name+size+mtime"] } },
+      {
+        name: "mode",
+        in: "query",
+        schema: { type: "string", enum: ["name+size", "name+size+mtime"] },
+      },
     ]),
     "/scans/{id}/diff/{otherId}": {
       get: {
         tags: ["query"],
         summary: "Diff two snapshots by path",
-        parameters: [idParam, { name: "otherId", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          idParam,
+          { name: "otherId", in: "path", required: true, schema: { type: "string" } },
+        ],
         responses: ok,
       },
     },
@@ -164,7 +187,11 @@ export const openApiDocument = {
         tags: ["scans"],
         summary: "Delete completed snapshots beyond the newest N",
         requestBody: {
-          content: { "application/json": { schema: { type: "object", properties: { keep: { type: "integer" } } } } },
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: { keep: { type: "integer" } } },
+            },
+          },
         },
         responses: ok,
       },
@@ -202,7 +229,9 @@ export const openApiDocument = {
       },
     },
     "/docker/status": { get: { tags: ["docker"], summary: "Docker availability", responses: ok } },
-    "/docker/containers": { get: { tags: ["docker"], summary: "Containers + sizes + mounts", responses: ok } },
+    "/docker/containers": {
+      get: { tags: ["docker"], summary: "Containers + sizes + mounts", responses: ok },
+    },
     "/docker/mounts": {
       get: {
         tags: ["docker"],
@@ -214,5 +243,21 @@ export const openApiDocument = {
     "/docker/images": { get: { tags: ["docker"], summary: "Images + sizes", responses: ok } },
     "/docker/volumes": { get: { tags: ["docker"], summary: "Volumes + usage", responses: ok } },
     "/docker/stats": { get: { tags: ["docker"], summary: "Live stats sample", responses: ok } },
+    "/docker/overlay-contents": {
+      get: {
+        tags: ["docker"],
+        summary: "Indexed contents of a container's overlay layer",
+        parameters: [
+          { name: "scan", in: "query", required: true, schema: { type: "string" } },
+          { name: "container", in: "query", required: true, schema: { type: "string" } },
+          {
+            name: "layer",
+            in: "query",
+            schema: { type: "string", enum: ["upper", "lower", "merged"] },
+          },
+        ],
+        responses: ok,
+      },
+    },
   },
 } as const;

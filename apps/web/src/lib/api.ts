@@ -1,5 +1,6 @@
 import type {
   ContainerInfo,
+  ContainerOverlayContents,
   DockerStats,
   DrivesResponse,
   HealthResponse,
@@ -371,6 +372,19 @@ export async function getDockerMounts(scanId?: string): Promise<MountInfo[]> {
 export async function getDockerStats(): Promise<DockerStats[]> {
   const body = await request<{ containers: DockerStats[] }>("/docker/stats");
   return body.containers;
+}
+
+/** Indexed contents of a container's overlay layer. */
+export function getDockerOverlayContents(
+  scanId: string,
+  containerId: string,
+  layer: "upper" | "lower" | "merged" | "",
+): Promise<ContainerOverlayContents> {
+  const params = new URLSearchParams();
+  params.set("scan", scanId);
+  params.set("container", containerId);
+  if (layer.length > 0) params.set("layer", layer);
+  return request<ContainerOverlayContents>(`/docker/overlay-contents?${params.toString()}`);
 }
 
 export interface Schedule {

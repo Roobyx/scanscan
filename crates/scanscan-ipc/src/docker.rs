@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::tree::NodeRecord;
+
 /// How a container mount maps onto the host filesystem.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -97,6 +99,19 @@ pub struct ImageInfo {
     pub size: u64,
     pub shared_size: u64,
     pub containers: i64,
+}
+
+/// The indexed contents of a container's overlay layer.
+///
+/// `nodeId` is the index node backing the layer directory, or `None` when the
+/// layer is not part of the scanned snapshot. `totalSize` is the allocated
+/// size of the layer subtree; `children` lists the layer's direct children.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerOverlayContents {
+    pub node_id: Option<u32>,
+    pub total_size: u64,
+    pub children: Vec<NodeRecord>,
 }
 
 /// A named volume summary from the read-only Docker Engine API.

@@ -1,5 +1,5 @@
-import { createConnection } from "node:net";
 import type { Socket } from "node:net";
+import { createConnection } from "node:net";
 
 import type { RpcRequest, RpcResponse } from "@scanscan/api-types";
 

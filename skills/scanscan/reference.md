@@ -80,6 +80,7 @@ GET  /api/v1/docker/mounts
 GET  /api/v1/docker/stats
 GET  /api/v1/docker/status
 GET  /api/v1/docker/locate?q=          # find the container owning a path / overlay2 id
+GET  /api/v1/docker/overlay-contents?scan=&container=&layer=upper|lower|merged
 ```
 
 ## Node labels

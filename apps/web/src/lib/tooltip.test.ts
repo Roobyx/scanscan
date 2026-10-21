@@ -22,9 +22,7 @@ describe("tooltipStyle", () => {
   });
 
   test("stays on the default side when neither side has room", () => {
-    expect(tooltipStyle({ x: 100, y: 50, width: 200, height: 160 })).toBe(
-      "left: 114px; top: 64px",
-    );
+    expect(tooltipStyle({ x: 100, y: 50, width: 200, height: 160 })).toBe("left: 114px; top: 64px");
   });
 
   test("uses a custom gap", () => {
