@@ -3,6 +3,8 @@
 //! All operations scan contiguous subtree id ranges, so folder-scoped work is
 //! bounded by the subtree rather than the whole snapshot.
 
+#[cfg(unix)]
+use libc::{getgrgid_r, getpwuid_r, group, passwd};
 use scanscan_ipc::{ContainerOverlayContents, MountInfo, NodeKind, NodeRecord, Tile, TilesResponse};
 use serde::Serialize;
 
@@ -110,6 +112,56 @@ fn kind_to_ipc(kind: Kind) -> NodeKind {
         Kind::Symlink => NodeKind::Symlink,
         Kind::Special => NodeKind::Special,
     }
+}
+
+/// Resolve a uid to a POSIX user name, falling back to the numeric id.
+#[cfg(unix)]
+fn resolve_uid_name(uid: u32) -> String {
+    // SAFETY: `getpwuid_r` is the reentrant lookup; it fills `pwd`/`pwd_ptr`
+    // only on success and leaves them untouched otherwise.
+    unsafe {
+        let mut buf = [0 as libc::c_char; 1024];
+        let mut pwd: passwd = std::mem::zeroed();
+        let mut pwd_ptr: *mut passwd = std::ptr::null_mut();
+        let ret = getpwuid_r(uid, &mut pwd, buf.as_mut_ptr(), buf.len(), &mut pwd_ptr);
+        if ret != 0 || pwd_ptr.is_null() {
+            return uid.to_string();
+        }
+        std::ffi::CStr::from_ptr(pwd.pw_name)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+/// Resolve a gid to a POSIX group name, falling back to the numeric id.
+#[cfg(unix)]
+fn resolve_gid_name(gid: u32) -> String {
+    // SAFETY: `getgrgid_r` is the reentrant lookup; it fills `grp`/`grp_ptr`
+    // only on success and leaves them untouched otherwise.
+    unsafe {
+        let mut buf = [0 as libc::c_char; 1024];
+        let mut grp: group = std::mem::zeroed();
+        let mut grp_ptr: *mut group = std::ptr::null_mut();
+        let ret = getgrgid_r(gid, &mut grp, buf.as_mut_ptr(), buf.len(), &mut grp_ptr);
+        if ret != 0 || grp_ptr.is_null() {
+            return gid.to_string();
+        }
+        std::ffi::CStr::from_ptr(grp.gr_name)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+/// Windows has no POSIX uid/gid, so owners stay numeric.
+#[cfg(not(unix))]
+fn resolve_uid_name(uid: u32) -> String {
+    uid.to_string()
+}
+
+/// Windows has no POSIX uid/gid, so owners stay numeric.
+#[cfg(not(unix))]
+fn resolve_gid_name(gid: u32) -> String {
+    gid.to_string()
 }
 
 /// Filters for `find`.
@@ -433,13 +485,37 @@ impl<'a> QueryEngine<'a> {
             entry.0 += 1;
             entry.1 = entry.1.saturating_add(rec.size_alloc);
         }
+
+        let mut uid_names: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+        let mut gid_names: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+
+        let all_uids: Vec<u32> = map.keys().map(|(uid, _)| *uid).collect();
+        let all_gids: Vec<u32> = map.keys().map(|(_, gid)| *gid).collect();
+
+        for uid in all_uids {
+            if !uid_names.contains_key(&uid) {
+                uid_names.insert(uid, resolve_uid_name(uid));
+            }
+        }
+
+        for gid in all_gids {
+            if !gid_names.contains_key(&gid) {
+                gid_names.insert(gid, resolve_gid_name(gid));
+            }
+        }
+
         let mut out: Vec<Bucket> = map
             .into_iter()
-            .map(|((uid, gid), (count, size))| Bucket {
-                key: format!("{uid}:{gid}"),
-                label: format!("{uid}:{gid}"),
-                count,
-                size,
+            .map(|((uid, gid), (count, size))| {
+                let uid_name = uid_names.get(&uid).unwrap();
+                let gid_name = gid_names.get(&gid).unwrap();
+                let label = format!("{uid}:{gid} ({uid_name}:{gid_name})");
+                Bucket {
+                    key: format!("{uid}:{gid}"),
+                    label,
+                    count,
+                    size,
+                }
             })
             .collect();
         out.sort_by(|a, b| b.size.cmp(&a.size));
