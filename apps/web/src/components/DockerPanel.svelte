@@ -26,9 +26,10 @@
   interface Props {
     scanId?: string;
     onreveal?: (nodeId: number) => void;
+    onToggleSideTree?: (nodeId: number) => void;
   }
 
-  let { scanId, onreveal }: Props = $props();
+  let { scanId, onreveal, onToggleSideTree }: Props = $props();
 
   let containers = $state<ContainerInfo[]>([]);
   let images = $state<ImageInfo[]>([]);
@@ -250,32 +251,32 @@
         <p class="muted small">No containers found. Docker may be unavailable.</p>
       {:else if view === "cards"}
         <div class="cards">
-          {#each sortedContainers as container (container.id)}
-            <article class="card">
-              <header>
-                <span class="name" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</span>
-                <span class="state-pill" class:running={container.state === "running"}>
-                  {container.state}
-                </span>
-              </header>
-              <p class="image" title={container.image}>{container.image}</p>
-              {#if container.composeProject}
-                <p class="image compose">
-                  {container.composeProject}{container.composeService
-                    ? `/${container.composeService}`
-                    : ""}
-                </p>
-              {/if}
-              <dl>
-                <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
-                <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
-                <div><dt>Mounts</dt><dd>{container.mounts.length}</dd></div>
-                {#if container.created !== undefined}
-                  <div><dt>Created</dt><dd>{formatAgo(container.created / 1e6)}</dd></div>
-                {/if}
-              </dl>
-            </article>
-          {/each}
+           {#each sortedContainers as container (container.id)}
+             <article class="card" onclick={() => void toggleSideTreeForContainer(container.id)}>
+               <header>
+                 <span class="name" title={container.displayName ?? container.name}>{container.displayName ?? container.name}</span>
+                 <span class="state-pill" class:running={container.state === "running"}>
+                   {container.state}
+                 </span>
+               </header>
+               <p class="image" title={container.image}>{container.image}</p>
+               {#if container.composeProject}
+                 <p class="image compose">
+                   {container.composeProject}{container.composeService
+                     ? `/${container.composeService}`
+                     : ""}
+                 </p>
+               {/if}
+               <dl>
+                 <div><dt>RW</dt><dd>{formatBytes(container.sizeRw ?? 0)}</dd></div>
+                 <div><dt>RootFS</dt><dd>{formatBytes(container.sizeRootFs ?? 0)}</dd></div>
+                 <div><dt>Mounts</dt><dd>{container.mounts.length}</dd></div>
+                 {#if container.created !== undefined}
+                   <div><dt>Created</dt><dd>{formatAgo(container.created / 1e6)}</dd></div>
+                 {/if}
+               </dl>
+             </article>
+           {/each}
         </div>
       {:else}
         <div class="table-wrap">

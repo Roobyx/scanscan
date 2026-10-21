@@ -168,6 +168,9 @@
   let searchQuery = $state(initial.q);
   let launcherOpen = $state(false);
 
+  /** Node id whose overlay tree is shown in the Docker side panel, or null when closed. */
+  let sideTreeNodeId = $state<number | null>(null);
+
   let treemapHost = $state<HTMLDivElement | null>(null);
   let hostW = $state(0);
   let hostH = $state(0);
@@ -721,9 +724,25 @@
         <div class="view-host">
           <DockerPanel
             scanId={selectedId ?? undefined}
-            onreveal={(nodeId) => (scopeId = nodeId)}
+            onreveal={(nodeId) => { scopeId = nodeId; }}
+            onToggleSideTree={(nodeId) => { sideTreeNodeId = nodeId; }}
           />
         </div>
+        {#if sideTreeNodeId !== null}
+          <section class="side-tree-panel">
+            <div class="panel-head">
+              <h2>Container overlay tree</h2>
+              <button type="button" class="close-btn" onclick={() => (sideTreeNodeId = null)} aria-label="Close tree panel">✕</button>
+            </div>
+            <div class="view-host">
+              {#if sideTreeNodeId !== null && tree && (tree.children ?? []).length > 0}
+                <Icicle root={tree} onselect={() => (sideTreeNodeId = null)} />
+              {:else if sideTreeNodeId !== null}
+                <p class="state">No tree data available for this node.</p>
+              {/if}
+            </div>
+          </section>
+        {/if}
       </section>
     </main>
   {:else if view === "schedules"}
