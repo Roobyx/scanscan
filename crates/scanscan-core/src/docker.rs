@@ -322,7 +322,7 @@ fn parse_container(item: &Value) -> ContainerInfo {
     };
     let compose_project = compose_label("com.docker.compose.project");
     let compose_service = compose_label("com.docker.compose.service");
-    let display_name = display_name_from_labels(&name, labels.as_ref());
+    let display_name = display_name_from_labels(&name, labels);
 
     let mounts = item
         .get("Mounts")
