@@ -1,0 +1,181 @@
+---
+import { steps } from "../../data/site.js";
+---
+
+<section class="how section" id="how">
+  <div class="container">
+    <header class="how__head">
+      <h2 class="how__title h2" data-split="lines">Scan once. Then stop waiting.</h2>
+      <p class="how__lede lede">
+        The scanner is a stream. The index is a set of flat files. Queries are reads, not crawls.
+      </p>
+    </header>
+
+    <ol class="how__steps">
+      {
+        steps.map((step) => (
+          <li class="how__step">
+            <span class="how__n mono" aria-hidden="true">
+              {step.n}
+            </span>
+            <div class="how__text">
+              <h3 class="how__step-title">{step.title}</h3>
+              <p class="how__copy">{step.copy}</p>
+            </div>
+            <pre class="how__artifact" tabindex="0" aria-label={`${step.title} artifact`}><code>{step.artifact}</code></pre>
+          </li>
+        ))
+      }
+    </ol>
+
+    <div class="how__more">
+      <a class="link" href="/architecture/">Read the architecture</a>
+    </div>
+  </div>
+</section>
+
+<style>
+  .how__head {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    align-items: end;
+    margin-bottom: clamp(2.5rem, 5vw, 4.5rem);
+  }
+
+  .how__title {
+    grid-column: 1 / span 6;
+  }
+
+  .how__lede {
+    grid-column: 8 / span 5;
+    max-width: 42ch;
+  }
+
+  .how__steps {
+    position: relative;
+  }
+
+  .how__steps::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 1.2rem;
+    width: 1px;
+    background: var(--line);
+  }
+
+  .how__step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 2.5rem 4fr 6fr;
+    gap: var(--gutter);
+    align-items: start;
+    padding-block: clamp(1.75rem, 3.5vw, 2.75rem);
+    border-top: 1px solid var(--line);
+  }
+
+  .how__step:last-child {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .how__n {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--ground);
+    color: var(--muted);
+    font-size: 0.6875rem;
+    line-height: 1;
+  }
+
+  .how__step-title {
+    font-family: var(--f-display);
+    font-size: var(--t-l);
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+
+  .how__copy {
+    max-width: 44ch;
+    margin-top: 0.9rem;
+    color: var(--muted);
+    font-size: var(--t-body);
+    line-height: 1.55;
+  }
+
+  .how__artifact {
+    overflow-x: auto;
+    margin: 0;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--ink);
+    font-family: var(--f-mono);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.7;
+    white-space: pre;
+    tab-size: 2;
+  }
+
+  .how__artifact:focus-visible {
+    outline-offset: 2px;
+  }
+
+  .how__more {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+    font-family: var(--f-mono);
+    font-size: 0.75rem;
+  }
+
+  .how__more .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    padding-block: 0.3rem;
+  }
+
+  @media (max-width: 900px) {
+    .how__title,
+    .how__lede {
+      grid-column: 1 / -1;
+    }
+
+    .how__lede {
+      margin-top: 1rem;
+    }
+
+    .how__step {
+      grid-template-columns: 2.5rem 1fr;
+    }
+
+    .how__artifact {
+      grid-column: 2;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .how__step {
+      gap: 1rem;
+    }
+
+    .how__steps::before {
+      left: 1.2rem;
+    }
+
+    .how__artifact {
+      font-size: 0.6875rem;
+    }
+  }
+</style>

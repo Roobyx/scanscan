@@ -1,0 +1,173 @@
+---
+import { COMPARISONS } from "../../lib/pitch.js";
+---
+
+<section class="compare section" id="compare">
+  <div class="container">
+    <header class="compare__head">
+      <h2 class="compare__title h2" data-split="lines">
+        A web treemap without the search cluster.
+      </h2>
+      <p class="compare__lede lede">
+        Diskover is the closest tool to this, and it needs Elasticsearch. scanscan keeps the index
+        in flat, memory-mapped files and serves the map from the same daemon.
+      </p>
+    </header>
+
+    <div class="compare__scroll" role="region" aria-label="Tool comparison" tabindex="0">
+      <table class="compare__table">
+        <caption class="sr-only">
+          How scanscan compares with WinDirStat, Diskover, and gdu or dua
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Tool</th>
+            <th scope="col">Index</th>
+            <th scope="col">RAM</th>
+            <th scope="col">Browser UI</th>
+            <th scope="col">Docker sizes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            COMPARISONS.map((row, index) => (
+              <tr class:list={{ "is-self": index === 0 }}>
+                <th scope="row">{row.tool}</th>
+                <td>{row.index}</td>
+                <td>{row.ram}</td>
+                <td>{row.web}</td>
+                <td>{row.docker}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <p class="compare__note">
+      RAM for scanscan is the design budget for the full stack. Competitor figures are typical
+      deployments, not benchmarks. gdu and dua have no browser UI; ttyd serves a terminal, not a
+      map.
+    </p>
+  </div>
+</section>
+
+<style>
+  .compare__head {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    align-items: end;
+    margin-bottom: clamp(2.25rem, 4vw, 3.5rem);
+  }
+
+  .compare__title {
+    grid-column: 1 / span 6;
+  }
+
+  .compare__lede {
+    grid-column: 8 / span 5;
+    max-width: 44ch;
+  }
+
+  .compare__scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    scrollbar-width: thin;
+    scrollbar-color: var(--panel-2) var(--panel);
+  }
+
+  .compare__scroll:focus-visible {
+    outline-offset: 3px;
+  }
+
+  .compare__table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+    text-align: left;
+  }
+
+  .compare__table th,
+  .compare__table td {
+    padding: 0.95rem 1rem;
+    border-bottom: 1px solid var(--line);
+    font-weight: 400;
+    white-space: nowrap;
+  }
+
+  .compare__table thead th {
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.02em;
+    background: var(--ground);
+  }
+
+  .compare__table tbody th {
+    color: var(--ink);
+    font-family: var(--f-display);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  .compare__table tbody td {
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .compare__table tbody tr:last-child th,
+  .compare__table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .compare__table tbody th,
+  .compare__table thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--panel);
+  }
+
+  .compare__table thead th:first-child {
+    background: var(--ground);
+  }
+
+  .compare__table tr.is-self th,
+  .compare__table tr.is-self td {
+    background: var(--panel-2);
+    color: var(--ink);
+  }
+
+  .compare__table tr.is-self th {
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .compare__table tr.is-self td:first-of-type {
+    color: var(--ink);
+  }
+
+  .compare__note {
+    max-width: 76ch;
+    margin-top: 1rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+
+  @media (max-width: 900px) {
+    .compare__title,
+    .compare__lede {
+      grid-column: 1 / -1;
+    }
+
+    .compare__lede {
+      margin-top: 1rem;
+    }
+  }
+</style>

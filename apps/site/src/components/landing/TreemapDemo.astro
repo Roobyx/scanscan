@@ -1,0 +1,109 @@
+---
+import { formatBytes, formatCount } from "../../lib/format.js";
+import { KIND_META, SAMPLE_ROOT } from "../../data/sample.js";
+import { squarify } from "../../lib/treemap.js";
+
+const children = SAMPLE_ROOT.children ?? [];
+const tiles = squarify(
+  children.map((node) => ({ value: node.size, data: node })),
+  { x: 0, y: 0, w: 1000, h: 688 },
+);
+
+const kinds = [...new Set(children.map((node) => node.kind))];
+
+const pct = (value: number, total: number) => `${((value / total) * 100).toFixed(2)}%`;
+const labelFor = (w: number, h: number) => {
+  if (w >= 120 && h >= 70) return "full";
+  if (w >= 70 && h >= 40) return "name";
+  return "none";
+};
+---
+
+<figure class="hero__figure">
+  <div class="map" data-map>
+    <div class="map__bar">
+      <nav class="map__crumbs" aria-label="Snapshot path" data-map-crumbs>
+        <span class="map__crumb" aria-current="location">snapshot</span>
+      </nav>
+      <span class="tag">Sample snapshot</span>
+    </div>
+
+    <div class="map__readout">
+      <div class="map__cell">
+        <span class="map__label">Path</span>
+        <span class="map__value" data-map-path>/</span>
+      </div>
+      <div class="map__cell">
+        <span class="map__label">Allocated</span>
+        <span class="map__value" data-map-size>{formatBytes(SAMPLE_ROOT.size)}</span>
+      </div>
+      <div class="map__cell">
+        <span class="map__label">Items</span>
+        <span class="map__value" data-map-items>{formatCount(SAMPLE_ROOT.items)}</span>
+      </div>
+    </div>
+
+    <div
+      class="map__canvas"
+      data-map-canvas
+      role="group"
+      aria-label="Treemap of the sample snapshot"
+      tabindex="-1"
+    >
+      <span class="map__scan" aria-hidden="true"></span>
+      {
+        tiles.map((tile) => {
+          const label = labelFor(tile.w, tile.h);
+          return (
+            <div
+              class="map__block"
+              data-static
+              data-label={label}
+              style={`--c:${KIND_META[tile.data.kind].color};left:${pct(tile.x, 1000)};top:${pct(tile.y, 688)};width:${pct(tile.w, 1000)};height:${pct(tile.h, 688)}`}
+            >
+              <span class="map__inner">
+                <span class="map__name">{tile.data.name}</span>{" "}
+                <span class="map__size">{formatBytes(tile.data.size)}</span>
+              </span>
+            </div>
+          );
+        })
+      }
+    </div>
+
+    <ul class="map__legend" data-map-legend aria-label="Colour key">
+      {
+        kinds.map((kind) => (
+          <li>
+            <span class="map__dot" style={`--c:${KIND_META[kind].color}`} />
+            {KIND_META[kind].label}
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="map__foot">
+      <span>Open a block to drill in.</span>
+      <button class="map__back" type="button" data-map-back hidden>Up one level</button>
+    </div>
+  </div>
+
+  <figcaption class="hero__caption">
+    A working map of a sample snapshot. The client uses the same rule: area is allocated bytes.
+  </figcaption>
+  <p class="sr-only" data-map-status aria-live="polite"></p>
+</figure>
+
+<style>
+  .hero__figure {
+    margin: 0;
+  }
+
+  .hero__caption {
+    margin-top: 0.65rem;
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.625rem;
+    line-height: 1.5;
+  }
+</style>

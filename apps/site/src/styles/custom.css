@@ -1,5 +1,95 @@
-:root {
+:root,
+:root[data-theme="dark"] {
+  --sl-font: "Supreme", ui-sans-serif, system-ui, sans-serif;
+  --sl-font-mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --sl-color-accent-low: #10203f;
   --sl-color-accent: #4f8cff;
   --sl-color-accent-high: #bcd3ff;
+  --sl-color-text-accent: #8fb6ff;
+  --sl-color-bg: #0b0e14;
+  --sl-color-bg-nav: #0b0e14;
+  --sl-color-bg-sidebar: #0b0e14;
+  --sl-color-text: #e6ebf2;
+  --sl-color-hairline: #263041;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #dbe6ff;
+  --sl-color-accent: #2f6be0;
+  --sl-color-accent-high: #0b2a6b;
+  --sl-color-text-accent: #1a56c9;
+  --sl-color-bg: #e9edf2;
+  --sl-color-bg-nav: #e9edf2;
+  --sl-color-bg-sidebar: #e9edf2;
+  --sl-color-text: #0b0e14;
+  --sl-color-hairline: #c9d1dc;
+}
+
+.site-title {
+  color: var(--sl-color-text);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.site-title:hover {
+  color: var(--sl-color-text-accent);
+}
+
+#starlight__sidebar summary .large {
+  font-family: var(--sl-font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+}
+
+#starlight__sidebar a[aria-current="page"] {
+  background-color: transparent;
+  box-shadow: inset 2px 0 0 var(--sl-color-accent);
+  color: var(--sl-color-text-accent);
+}
+
+button[data-open-modal] {
+  transition: background-color 0.25s;
+}
+
+@media (hover: hover) {
+  button[data-open-modal]:hover {
+    background-color: var(--sl-color-gray-6);
+  }
+}
+
+.sl-markdown-content :is(h1, h2, h3, h4) {
+  letter-spacing: -0.03em;
+}
+
+.sl-markdown-content a {
+  text-underline-offset: 0.18em;
+}
+
+#starlight__sidebar a {
+  display: flex;
+  align-items: center;
+  min-height: 1.5rem;
+}
+
+.sl-markdown-content li > a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  margin-inline: -0.15rem;
+  padding-inline: 0.15rem;
+}
+
+.sl-anchor-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-anchor-link {
+    opacity: 1;
+  }
 }

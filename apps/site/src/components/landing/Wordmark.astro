@@ -1,0 +1,65 @@
+---
+const layout = [
+  { x: 2, y: 2, w: 9, h: 20, color: "#4f8cff" },
+  { x: 13, y: 2, w: 9, h: 11, color: "#3ddc97" },
+  { x: 13, y: 15, w: 4.5, h: 7, color: "#ffb454" },
+  { x: 19.5, y: 15, w: 2.5, h: 7, color: "#f78fb3" },
+];
+
+const alt = [
+  { x: 2, y: 2, w: 9, h: 9 },
+  { x: 2, y: 13, w: 9, h: 9 },
+  { x: 13, y: 2, w: 9, h: 9 },
+  { x: 13, y: 13, w: 9, h: 9 },
+];
+---
+
+<a class="brand" href="/" aria-label="scanscan, home">
+  <svg
+    class="brand__glyph"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    focusable="false"
+    data-glyph
+    data-glyph-alt={JSON.stringify(alt)}
+  >
+    {
+      layout.map((block) => (
+        <rect
+          x={block.x}
+          y={block.y}
+          width={block.w}
+          height={block.h}
+          rx="1"
+          fill={block.color}
+        />
+      ))
+    }
+  </svg>
+  <span class="brand__name">scanscan</span>
+</a>
+
+<style>
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex: none;
+    padding-block: 0.3rem;
+    color: var(--ink);
+  }
+
+  .brand__glyph {
+    width: 1.125rem;
+    height: 1.125rem;
+    overflow: visible;
+  }
+
+  .brand__name {
+    font-family: var(--f-display);
+    font-size: 1rem;
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 1;
+  }
+</style>

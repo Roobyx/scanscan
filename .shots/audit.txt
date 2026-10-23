@@ -1,0 +1,13 @@
+WARN  /architecture/                1 em/en dash(es) in visible text (read as AI tell; rewrite)
+WARN  /web-ui/                      11 em/en dash(es) in visible text (read as AI tell; rewrite)
+WARN  /docker/                      1 em/en dash(es) in visible text (read as AI tell; rewrite)
+WARN  /installation/                1 em/en dash(es) in visible text (read as AI tell; rewrite)
+WARN  /cli/                         2 em/en dash(es) in visible text (read as AI tell; rewrite)
+WARN  /troubleshooting/             sentence repeated 3x: "The site port is already in use"
+WARN  /getting-started/             8 em/en dash(es) in visible text (read as AI tell; rewrite)
+WARN  /api/                         1 em/en dash(es) in visible text (read as AI tell; rewrite)
+WARN  /configuration/               4 em/en dash(es) in visible text (read as AI tell; rewrite)
+
+13 pages crawled from http://127.0.0.1:4400/
+heaviest page /: ~119 KB | html 15 | JS 59 (gz) | CSS 8 (gz) | fonts 37 | images 0
+0 FAIL, 9 WARN

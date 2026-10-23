@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Environment variables and scan options.
+description: Every environment variable, port, mount and scan option, with its default and purpose.
 ---
 
 ## Environment variables

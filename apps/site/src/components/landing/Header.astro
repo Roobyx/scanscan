@@ -1,0 +1,344 @@
+---
+import { nav, site } from "../../data/site.js";
+import Wordmark from "./Wordmark.astro";
+---
+
+<header class="site-header" data-header>
+  <div class="site-header__inner container">
+    <Wordmark />
+
+    <nav class="site-nav" aria-label="Primary">
+      {
+        nav.map((item) => (
+          <a class="nav-link" href={item.href}>
+            {item.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="site-header__actions">
+      <a class="github" href={site.github} rel="noopener noreferrer" target="_blank" aria-label="GitHub">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path
+            fill="currentColor"
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.42 7.42 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+          ></path>
+        </svg>
+        <span class="github__label">GitHub</span>
+      </a>
+
+      <a class="btn btn--primary btn--sm header-cta" href="#install" data-fill>
+        <span class="btn__fill" aria-hidden="true"></span>
+        <span>Get started</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="square"
+            stroke-width="1.5"
+            d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"></path>
+        </svg>
+      </a>
+
+      <button
+        class="menu-btn"
+        type="button"
+        aria-expanded="false"
+        aria-controls="site-menu"
+        data-menu-btn
+      >
+        <span class="menu-btn__text">Menu</span>
+        <span class="menu-btn__bars" aria-hidden="true">
+          <span></span>
+          <span></span>
+        </span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="menu" id="site-menu" data-menu hidden>
+  <div class="menu__inner container">
+    <nav class="menu__nav" aria-label="Mobile">
+      {
+        nav.map((item) => (
+          <a class="menu__link" href={item.href}>
+            <span>{item.label}</span>
+          </a>
+        ))
+      }
+    </nav>
+    <div class="menu__foot">
+      <a class="btn btn--primary btn--lg" href="#install" data-fill>
+        <span class="btn__fill" aria-hidden="true"></span>
+        <span>Get started</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="square"
+            stroke-width="1.5"
+            d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"></path>
+        </svg>
+      </a>
+      <a class="menu__util" href={site.github} rel="noopener noreferrer" target="_blank">
+        GitHub
+      </a>
+    </div>
+  </div>
+</div>
+
+<style>
+  .site-header {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: var(--z-header);
+    height: var(--header-h);
+    border-bottom: 1px solid transparent;
+    transition:
+      background 0.3s var(--ease-soft),
+      border-color 0.3s var(--ease-soft);
+  }
+
+  .site-header.is-scrolled,
+  .site-header.is-open {
+    background: rgb(11 14 20 / 0.88);
+    border-bottom-color: var(--line);
+    backdrop-filter: blur(14px);
+  }
+
+  .site-header__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    height: 100%;
+  }
+
+  .site-nav {
+    display: flex;
+    align-items: center;
+    gap: clamp(1rem, 2vw, 1.75rem);
+    margin-inline: auto;
+  }
+
+  .nav-link {
+    position: relative;
+    padding-block: 0.35rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    line-height: 1;
+    transition: color 0.25s;
+  }
+
+  .nav-link::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    background: currentColor;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.35s var(--ease-soft);
+  }
+
+  @media (hover: hover) {
+    .nav-link:hover {
+      color: var(--ink);
+    }
+
+    .nav-link:hover::after {
+      transform: scaleX(1);
+    }
+  }
+
+  .nav-link:focus-visible {
+    color: var(--ink);
+  }
+
+  .nav-link:focus-visible::after {
+    transform: scaleX(1);
+  }
+
+  .site-header__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    flex: none;
+  }
+
+  .github {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+    padding: 0.3rem 0.25rem;
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.6875rem;
+    transition: color 0.25s;
+  }
+
+  .github svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .github:hover {
+    color: var(--ink);
+  }
+
+  .menu-btn {
+    display: none;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    padding: 0.4rem 0.5rem;
+    color: var(--ink);
+    font-family: var(--f-mono);
+    font-size: 0.6875rem;
+  }
+
+  .menu-btn__bars {
+    position: relative;
+    display: block;
+    width: 1rem;
+    height: 0.5rem;
+  }
+
+  .menu-btn__bars span {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    background: currentColor;
+    transition:
+      translate 0.3s var(--ease-soft),
+      rotate 0.3s var(--ease-soft);
+  }
+
+  .menu-btn__bars span:first-child {
+    top: 0;
+  }
+
+  .menu-btn__bars span:last-child {
+    bottom: 0;
+  }
+
+  .menu-btn[aria-expanded="true"] .menu-btn__bars span:first-child {
+    translate: 0 0.22rem;
+    rotate: 45deg;
+  }
+
+  .menu-btn[aria-expanded="true"] .menu-btn__bars span:last-child {
+    translate: 0 -0.22rem;
+    rotate: -45deg;
+  }
+
+  .menu {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-menu);
+    padding-top: calc(var(--header-h) + 2rem);
+    padding-bottom: 2rem;
+    background: var(--ground);
+    overflow-y: auto;
+    clip-path: inset(0 0 0 0);
+  }
+
+  .menu[hidden] {
+    display: none;
+  }
+
+  .menu__inner {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 2rem;
+    min-height: 100%;
+  }
+
+  .menu__nav {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--line);
+  }
+
+  .menu__link {
+    display: flex;
+    align-items: center;
+    min-height: 3.75rem;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--f-display);
+    font-size: clamp(1.9rem, 7vw, 2.75rem);
+    font-weight: 500;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    color: var(--ink);
+  }
+
+  .menu__link span {
+    display: inline-block;
+  }
+
+  .menu__link:focus-visible {
+    color: var(--link);
+  }
+
+  .menu__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .menu__util {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    padding-block: 0.35rem;
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.75rem;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .menu__util:hover {
+    color: var(--ink);
+  }
+
+  @media (max-width: 1080px) {
+    .site-nav {
+      display: none;
+    }
+
+    .menu-btn {
+      display: inline-flex;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .github__label {
+      display: none;
+    }
+
+    .site-header.is-scrolled,
+    .site-header.is-open {
+      backdrop-filter: none;
+      background: var(--ground);
+    }
+  }
+
+  @media (max-width: 420px) {
+    .header-cta {
+      padding-inline: 0.7em;
+    }
+  }
+</style>

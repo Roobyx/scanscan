@@ -1,0 +1,646 @@
+---
+import { KIND_META, SAMPLE_ROOT } from "../../data/sample.js";
+import { containers, views } from "../../data/site.js";
+import { formatBytes, formatCount } from "../../lib/format.js";
+import { bubblePacking, icicleRects, sunburstArcs } from "../../lib/previews.js";
+import { squarify } from "../../lib/treemap.js";
+
+const W = 640;
+const H = 400;
+const PAD = 16;
+
+const top = SAMPLE_ROOT.children ?? [];
+const tiles = squarify(
+  top.map((node) => ({ value: node.size, data: node })),
+  { x: PAD, y: PAD, w: W - PAD * 2, h: H - PAD * 2 },
+);
+const arcs = sunburstArcs(SAMPLE_ROOT, 400, 2);
+const icicles = icicleRects(SAMPLE_ROOT, 3);
+const bubbles = bubblePacking(top, 8);
+const bars = [...top].sort((a, b) => b.size - a.size).slice(0, 6);
+const maxBar = bars[0]?.size ?? 1;
+const bubbleSide = H - PAD * 2;
+const bubbleX = (W - bubbleSide) / 2;
+const treemapLabel = (w: number, h: number) => {
+  if (w >= 120 && h >= 62) return "full";
+  if (w >= 64 && h >= 34) return "name";
+  return "none";
+};
+---
+
+<section class="views section" id="views">
+  <div class="container">
+    <header class="views__head">
+      <h2 class="views__title h2" data-split="lines">The same snapshot, read six ways.</h2>
+      <p class="views__lede lede">
+        Every view is coupled to the same selection. Change the scope in one and the others follow.
+        No view reloads the tree.
+      </p>
+    </header>
+
+    <div class="views__layout">
+      <div class="views__tabs" role="tablist" aria-label="Views" aria-orientation="vertical">
+        {
+          views.map((view, index) => (
+            <button
+              class="views__tab"
+              type="button"
+              role="tab"
+              id={`tab-${view.id}`}
+              aria-controls={`panel-${view.id}`}
+              aria-selected={index === 0 ? "true" : "false"}
+              tabindex={index === 0 ? 0 : -1}
+              data-view-tab={view.id}
+            >
+              <span>{view.name}</span>
+              <span class="views__tab-line" aria-hidden="true" />
+            </button>
+          ))
+        }
+      </div>
+
+      <div class="views__panels">
+        {
+          views.map((view, index) => (
+            <div
+              class="views__panel"
+              role="tabpanel"
+              id={`panel-${view.id}`}
+              aria-labelledby={`tab-${view.id}`}
+              hidden={index !== 0}
+              data-view-panel={view.id}
+            >
+              <div class="views__frame">
+                <svg viewBox={`0 0 ${W} ${H}`} aria-hidden="true" focusable="false">
+                  <rect width={W} height={H} fill="#0b0e14" />
+
+                  {view.id === "treemap" &&
+                    tiles.map((tile) => {
+                      const label = treemapLabel(tile.w, tile.h);
+                      return (
+                        <g>
+                          <rect
+                            x={tile.x + 1}
+                            y={tile.y + 1}
+                            width={Math.max(0, tile.w - 2)}
+                            height={Math.max(0, tile.h - 2)}
+                            fill={KIND_META[tile.data.kind].color}
+                          />
+                          {label !== "none" && (
+                            <text
+                              x={tile.x + 10}
+                              y={tile.y + 25}
+                              fill="#0b0e14"
+                              font-family="Supreme, sans-serif"
+                              font-size="13"
+                              font-weight="500"
+                            >
+                              {tile.data.name}
+                            </text>
+                          )}
+                          {label === "full" && (
+                            <text
+                              x={tile.x + 10}
+                              y={tile.y + 41}
+                              fill="#0b0e14"
+                              font-family="Azeret Mono, monospace"
+                              font-size="10"
+                            >
+                              {formatBytes(tile.data.size)}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+
+                  {view.id === "sunburst" && (
+                    <g transform={`translate(${(W - 400) / 2} 0)`}>
+                      {arcs.map((arc) => (
+                        <path
+                          d={arc.path}
+                          fill={arc.color}
+                          opacity={arc.depth === 1 ? 1 : 0.7}
+                        />
+                      ))}
+                      <circle cx="200" cy="200" r="52" fill="#0b0e14" />
+                      <text
+                        x="200"
+                        y="196"
+                        text-anchor="middle"
+                        fill="#e6ebf2"
+                        font-family="Azeret Mono, monospace"
+                        font-size="14"
+                      >
+                        {formatBytes(SAMPLE_ROOT.size)}
+                      </text>
+                      <text
+                        x="200"
+                        y="214"
+                        text-anchor="middle"
+                        fill="#8a97ab"
+                        font-family="Azeret Mono, monospace"
+                        font-size="9"
+                      >
+                        {formatCount(SAMPLE_ROOT.items)} items
+                      </text>
+                    </g>
+                  )}
+
+                  {view.id === "icicle" &&
+                    icicles.map((rect) => {
+                      const x = PAD + rect.x * (W - PAD * 2);
+                      const w = rect.w * (W - PAD * 2);
+                      const y = PAD + rect.depth * 112;
+                      return (
+                        <g>
+                          <rect
+                            x={x + 1}
+                            y={y + 1}
+                            width={Math.max(0, w - 2)}
+                            height={94}
+                            fill={KIND_META[rect.node.kind].color}
+                            opacity={rect.depth === 0 ? 1 : rect.depth === 1 ? 0.78 : 0.5}
+                          />
+                          {rect.depth === 0 && w > 64 && (
+                            <text
+                              x={x + 8}
+                              y={y + 22}
+                              fill="#0b0e14"
+                              font-family="Supreme, sans-serif"
+                              font-size="12"
+                              font-weight="500"
+                            >
+                              {rect.node.name}
+                            </text>
+                          )}
+                          {rect.depth === 0 && w > 110 && (
+                            <text
+                              x={x + 8}
+                              y={y + 38}
+                              fill="#0b0e14"
+                              font-family="Azeret Mono, monospace"
+                              font-size="9"
+                            >
+                              {formatBytes(rect.node.size)}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+
+                  {view.id === "bubble" &&
+                    bubbles.map((bubble) => {
+                      const cx = bubbleX + bubble.x * bubbleSide;
+                      const cy = PAD + bubble.y * bubbleSide;
+                      const r = bubble.r * bubbleSide;
+                      return (
+                        <g>
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={r}
+                            fill={KIND_META[bubble.node.kind].color}
+                          />
+                          {r > 30 && (
+                            <text
+                              x={cx}
+                              y={cy + 4}
+                              text-anchor="middle"
+                              fill="#0b0e14"
+                              font-family="Supreme, sans-serif"
+                              font-size="11"
+                              font-weight="500"
+                            >
+                              {bubble.node.name}
+                            </text>
+                          )}
+                          {r > 52 && (
+                            <text
+                              x={cx}
+                              y={cy + 18}
+                              text-anchor="middle"
+                              fill="#0b0e14"
+                              font-family="Azeret Mono, monospace"
+                              font-size="8"
+                            >
+                              {formatBytes(bubble.node.size)}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+
+                  {view.id === "bars" && (
+                    <g>
+                      <text
+                        x={PAD}
+                        y="26"
+                        fill="#8a97ab"
+                        font-family="Azeret Mono, monospace"
+                        font-size="9"
+                      >
+                        TOP 6 BY ALLOCATED
+                      </text>
+                      <text
+                        x={W - PAD}
+                        y="26"
+                        text-anchor="end"
+                        fill="#8a97ab"
+                        font-family="Azeret Mono, monospace"
+                        font-size="9"
+                      >
+                        SAMPLE
+                      </text>
+                      {bars.map((node, index) => {
+                        const y = 48 + index * 54;
+                        const width = (node.size / maxBar) * (W - PAD * 2 - 150);
+                        return (
+                          <g>
+                            <text
+                              x={PAD}
+                              y={y + 14}
+                              fill="#e6ebf2"
+                              font-family="Supreme, sans-serif"
+                              font-size="14"
+                              font-weight="500"
+                            >
+                              {node.name}
+                            </text>
+                            <text
+                              x={W - PAD}
+                              y={y + 14}
+                              text-anchor="end"
+                              fill="#8a97ab"
+                              font-family="Azeret Mono, monospace"
+                              font-size="10"
+                            >
+                              {formatBytes(node.size)}
+                            </text>
+                            <rect
+                              x={PAD}
+                              y={y + 24}
+                              width={W - PAD * 2}
+                              height="1"
+                              fill="#263041"
+                            />
+                            <rect
+                              x={PAD}
+                              y={y + 22}
+                              width={width}
+                              height="5"
+                              fill={KIND_META[node.kind].color}
+                            />
+                          </g>
+                        );
+                      })}
+                    </g>
+                  )}
+
+                  {view.id === "docker" && (
+                    <g>
+                      <text
+                        x={PAD}
+                        y="26"
+                        fill="#8a97ab"
+                        font-family="Azeret Mono, monospace"
+                        font-size="9"
+                      >
+                        CONTAINERS
+                      </text>
+                      <text
+                        x={W - PAD}
+                        y="26"
+                        text-anchor="end"
+                        fill="#8a97ab"
+                        font-family="Azeret Mono, monospace"
+                        font-size="9"
+                      >
+                        SAMPLE
+                      </text>
+                      {containers.map((container, index) => {
+                        const y = 48 + index * 82;
+                        return (
+                          <g>
+                            <text
+                              x={PAD}
+                              y={y + 16}
+                              fill="#e6ebf2"
+                              font-family="Supreme, sans-serif"
+                              font-size="14"
+                              font-weight="500"
+                            >
+                              {container.name}
+                            </text>
+                            <text
+                              x={PAD}
+                              y={y + 32}
+                              fill="#8a97ab"
+                              font-family="Azeret Mono, monospace"
+                              font-size="9"
+                            >
+                              {container.image}
+                            </text>
+                            <rect
+                              x={PAD}
+                              y={y + 42}
+                              width={360}
+                              height="4"
+                              fill="#263041"
+                            />
+                            <rect
+                              x={PAD}
+                              y={y + 42}
+                              width={(container.pct / 100) * 360}
+                              height="4"
+                              fill="#3ddc97"
+                            />
+                            <text
+                              x={PAD}
+                              y={y + 62}
+                              fill="#8a97ab"
+                              font-family="Azeret Mono, monospace"
+                              font-size="8"
+                            >
+                              {container.mounts}
+                            </text>
+                            <line
+                              x1="404"
+                              y1={y + 4}
+                              x2="404"
+                              y2={y + 66}
+                              stroke="#263041"
+                              stroke-width="1"
+                            />
+                            <text
+                              x={W - PAD}
+                              y={y + 16}
+                              text-anchor="end"
+                              fill="#e6ebf2"
+                              font-family="Azeret Mono, monospace"
+                              font-size="12"
+                            >
+                              {container.size}
+                            </text>
+                            <text
+                              x={W - PAD}
+                              y={y + 38}
+                              text-anchor="end"
+                              fill="#8a97ab"
+                              font-family="Azeret Mono, monospace"
+                              font-size="9"
+                            >
+                              CPU {container.cpu}
+                            </text>
+                            <text
+                              x={W - PAD}
+                              y={y + 54}
+                              text-anchor="end"
+                              fill="#8a97ab"
+                              font-family="Azeret Mono, monospace"
+                              font-size="9"
+                            >
+                              MEM {container.mem}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </g>
+                  )}
+                </svg>
+              </div>
+
+              <div class="views__foot">
+                <div>
+                  <p class="views__meta mono">
+                    Sample snapshot, {formatBytes(SAMPLE_ROOT.size)}
+                  </p>
+                  <p class="views__blurb">{view.blurb}</p>
+                </div>
+                <a class="link views__more" href="/web-ui/">
+                  Web UI guide
+                </a>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+
+    <p class="views__also">
+      Also in the client: histogram, extension, age and owner breakdowns, duplicate candidates, and
+      snapshot diff.
+    </p>
+  </div>
+</section>
+
+<style>
+  .views__head {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    align-items: end;
+    margin-bottom: clamp(2.5rem, 5vw, 4.5rem);
+  }
+
+  .views__title {
+    grid-column: 1 / span 6;
+  }
+
+  .views__lede {
+    grid-column: 8 / span 5;
+    max-width: 42ch;
+  }
+
+  .views__layout {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    align-items: start;
+  }
+
+  .views__tabs {
+    grid-column: 1 / span 4;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--line);
+  }
+
+  .views__tab {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    min-height: 3.4rem;
+    padding-block: 0.85rem;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--f-display);
+    font-size: 1.15rem;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    text-align: left;
+    translate: 0 0;
+    transition:
+      color 0.25s,
+      translate 0.3s var(--ease-soft);
+  }
+
+  .views__tab-line {
+    display: block;
+    width: 1.5rem;
+    height: 2px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.35s var(--ease-soft);
+  }
+
+  @media (hover: hover) {
+    .views__tab:hover {
+      color: var(--ink);
+      translate: 3px 0;
+    }
+
+    .views__tab:hover .views__tab-line {
+      transform: scaleX(1);
+    }
+  }
+
+  .views__tab[aria-selected="true"] {
+    color: var(--ink);
+  }
+
+  .views__tab[aria-selected="true"] .views__tab-line {
+    transform: scaleX(1);
+  }
+
+  @media (hover: hover) {
+    .views__tab[aria-selected="true"]:hover .views__tab-line {
+      transform: scaleX(1.35);
+    }
+  }
+
+  .views__tab:focus-visible {
+    color: var(--ink);
+    translate: 3px 0;
+  }
+
+  .views__tab:focus-visible .views__tab-line {
+    transform: scaleX(1);
+  }
+
+  .views__panels {
+    grid-column: 6 / span 7;
+  }
+
+  .views__panel[hidden] {
+    display: none;
+  }
+
+  .views__frame {
+    overflow: clip;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--ground);
+  }
+
+  .views__frame svg {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 10;
+  }
+
+  .views__foot {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin-top: 0.9rem;
+  }
+
+  .views__meta {
+    margin-bottom: 0.35rem;
+    color: var(--muted);
+    font-size: 0.625rem;
+  }
+
+  .views__blurb {
+    max-width: 48ch;
+    color: var(--ink);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+
+  .views__more {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    min-height: 1.5rem;
+    margin-top: 0.75rem;
+    padding-block: 0.3rem;
+    font-family: var(--f-mono);
+    font-size: 0.6875rem;
+  }
+
+  .views__also {
+    max-width: 70ch;
+    margin-top: clamp(2rem, 4vw, 3rem);
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 1000px) {
+    .views__title,
+    .views__lede {
+      grid-column: 1 / -1;
+    }
+
+    .views__lede {
+      margin-top: 1rem;
+    }
+
+    .views__tabs,
+    .views__panels {
+      grid-column: 1 / -1;
+    }
+
+    .views__tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 1.25rem;
+      border-top: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .views__tab {
+      min-height: 3rem;
+      padding: 0.7rem 0.75rem;
+      border-top: 1px solid var(--line);
+      font-size: 1rem;
+    }
+
+    .views__tab-line {
+      width: 1rem;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .views__tabs {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .views__foot {
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .views__more {
+      padding-top: 0;
+    }
+  }
+</style>

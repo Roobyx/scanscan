@@ -1,0 +1,285 @@
+---
+import { site } from "../../data/site.js";
+import Wordmark from "./Wordmark.astro";
+
+interface Props {
+  compact?: boolean;
+}
+
+const { compact = false } = Astro.props;
+
+const groups = [
+  {
+    title: "Product",
+    links: [
+      { label: "Why", href: "/#why" },
+      { label: "Views", href: "/#views" },
+      { label: "Compare", href: "/#compare" },
+      { label: "Install", href: "/#install" },
+    ],
+  },
+  {
+    title: "Docs",
+    links: [
+      { label: "Overview", href: "/overview/" },
+      { label: "Getting started", href: "/getting-started/" },
+      { label: "Installation", href: "/installation/" },
+      { label: "Web UI", href: "/web-ui/" },
+    ],
+  },
+  {
+    title: "Reference",
+    links: [
+      { label: "CLI", href: "/cli/" },
+      { label: "API", href: "/api/" },
+      { label: "Architecture", href: "/architecture/" },
+      { label: "Security", href: "/security/" },
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      { label: "GitHub", href: site.github },
+      { label: "Changelog", href: `${site.github}/blob/main/CHANGELOG.md` },
+      { label: "License", href: `${site.github}/blob/main/LICENSE` },
+      { label: "Issues", href: site.issues },
+    ],
+  },
+];
+
+const command = "docker compose up -d --build";
+---
+
+<footer class:list={["footer", { "footer--compact": compact }]}>
+  <div class="container">
+    {compact && <h2 class="sr-only">Site footer</h2>}
+    {
+      !compact && (
+        <div class="footer__cta">
+          <h2 class="footer__title display">Point it at a disk.</h2>
+          <div class="footer__command">
+            <code>{command}</code>
+            <button class="copy-btn" type="button" data-copy={command}>
+              <svg class="copy-btn__copy" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <rect
+                  x="5.5"
+                  y="5.5"
+                  width="8"
+                  height="8"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.25"
+                />
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.25"
+                  d="M10.5 3.5v-1h-8v8h1"
+                />
+              </svg>
+              <svg class="copy-btn__check" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="square"
+                  stroke-width="1.5"
+                  d="m3.5 8.5 3 3 6-7"
+                />
+              </svg>
+              <span data-copy-text>Copy</span>
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    <div class="footer__grid">
+      <div class="footer__brand">
+        <Wordmark />
+        <p class="footer__tagline">A fast, headless disk index you can walk in a browser.</p>
+      </div>
+
+      {
+        groups.map((group) => (
+          <nav class="footer__group" aria-labelledby={`footer-${group.title}`}>
+            <h3 class="footer__group-title" id={`footer-${group.title}`}>
+              {group.title}
+            </h3>
+            <ul>
+              {group.links.map((link) => (
+                <li>
+                  <a class="footer__link" href={link.href}>
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
+    </div>
+
+    <div class="footer__bottom">
+      <span>© 2026 scanscan</span>
+      <span>{site.license}</span>
+      <span>v{site.version}</span>
+      <span class="footer__colophon">Set in Supreme and Azeret Mono. Built with Rust, Bun, Svelte and Astro.</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    padding-top: clamp(4rem, 8vw, 8rem);
+    border-top: 1px solid var(--line);
+  }
+
+  .footer--compact {
+    padding-top: 2.5rem;
+  }
+
+  .footer__cta {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    align-items: end;
+    padding-bottom: clamp(3rem, 6vw, 5rem);
+  }
+
+  .footer__title {
+    grid-column: 1 / span 7;
+    font-size: clamp(2.8rem, 1.2rem + 5.2vw, 6.2rem);
+    line-height: 0.92;
+    letter-spacing: -0.055em;
+    margin-left: -0.045em;
+  }
+
+  .footer__command {
+    grid-column: 9 / span 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+
+  .footer__command code {
+    overflow: hidden;
+    color: var(--ink);
+    font-family: var(--f-mono);
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .footer__grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    padding-block: clamp(2.5rem, 5vw, 4rem);
+    border-top: 1px solid var(--line);
+  }
+
+  .footer__brand {
+    grid-column: 1 / span 4;
+  }
+
+  .footer__tagline {
+    max-width: 28ch;
+    margin-top: 0.9rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .footer__group {
+    grid-column: span 2;
+  }
+
+  .footer__group-title {
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.625rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+  }
+
+  .footer__group ul {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.6rem;
+  }
+
+  .footer__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    margin-inline: -0.2rem;
+    padding: 0.2rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    transition: color 0.25s;
+  }
+
+  .footer__link:hover,
+  .footer__link:focus-visible {
+    color: var(--ink);
+  }
+
+  .footer__bottom {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    padding-block: 1.25rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.625rem;
+    line-height: 1.5;
+  }
+
+  .footer__colophon {
+    margin-left: auto;
+  }
+
+  @media (max-width: 1000px) {
+    .footer__title,
+    .footer__command {
+      grid-column: 1 / -1;
+    }
+
+    .footer__command {
+      margin-top: 1.5rem;
+    }
+
+    .footer__brand {
+      grid-column: 1 / -1;
+      margin-bottom: 1.5rem;
+    }
+
+    .footer__group {
+      grid-column: span 3;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .footer__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 2rem var(--gutter);
+    }
+
+    .footer__group {
+      grid-column: span 1;
+    }
+
+    .footer__colophon {
+      margin-left: 0;
+    }
+  }
+</style>

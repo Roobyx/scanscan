@@ -1,0 +1,56 @@
+:root {
+  color-scheme: dark;
+
+  --ground: #0b0e14;
+  --panel: #121722;
+  --panel-2: #1a2130;
+  --ink: #e6ebf2;
+  --muted: #8a97ab;
+  --line: rgb(230 235 242 / 0.12);
+  --line-strong: rgb(230 235 242 / 0.24);
+  --accent: #4f8cff;
+  --accent-ink: #071018;
+  --link: #8fb6ff;
+  --focus: #9cc0ff;
+
+  --paper: #e9edf2;
+  --paper-ink: #0b0e14;
+  --paper-muted: #4b5566;
+  --paper-line: rgb(11 14 20 / 0.14);
+  --paper-link: #1a56c9;
+
+  --ok: #3ddc97;
+  --warn: #ffb454;
+  --err: #ff6b6b;
+
+  --f-display: "Supreme", ui-sans-serif, system-ui, sans-serif;
+  --f-body: "Supreme", ui-sans-serif, system-ui, sans-serif;
+  --f-mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --t-mega: clamp(3rem, 1.4rem + 5.6vw, 6.6rem);
+  --t-xl: clamp(2.2rem, 1.4rem + 3vw, 4.4rem);
+  --t-l: clamp(1.6rem, 1.2rem + 1.6vw, 2.6rem);
+  --t-m: clamp(1.15rem, 1.05rem + 0.4vw, 1.4rem);
+  --t-body: clamp(1rem, 0.96rem + 0.18vw, 1.0625rem);
+  --t-s: 0.875rem;
+  --t-xs: 0.75rem;
+
+  --u: clamp(0.5rem, 0.35rem + 0.6vw, 1rem);
+  --gutter: clamp(1rem, 0.5rem + 2.2vw, 2.5rem);
+  --max: 90rem;
+  --radius: 3px;
+  --header-h: 4rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.165, 0.84, 0.44, 1);
+
+  --z-header: 70;
+  --z-menu: 60;
+  --z-skip: 80;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --header-h: 3.5rem;
+  }
+}

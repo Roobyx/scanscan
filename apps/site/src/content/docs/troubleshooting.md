@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Common issues and how to resolve them.
+description: Fix an empty Docker view, a port already in use, a failed scan and a missing snapshot.
 ---
 
 ## The Docker view is empty

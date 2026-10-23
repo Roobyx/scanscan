@@ -2,6 +2,25 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.16.0] - 2026-10-23
+
+### Site
+
+- **The landing page at `/` is now a conversion page, not a splash.** It leads with a working
+  treemap of a labelled sample snapshot that drills into the clicked block, then a views tab panel,
+  a comparison table, a Docker sample, a copyable three-command install, a trust strip and an
+  operator FAQ. The docs index moved to `/overview/` and the docs are themed with the product
+  palette and self-hosted Supreme and Azeret Mono.
+- **Downloads are one action.** The install section copies the compose commands, links the
+  repository archive, Portainer stack and source build, and the footer repeats the command. The
+  page never promises a binary or image tag that is not published.
+- **The custom 404 is served by nginx.** `error_page 404 /404.html` replaces the default page, and
+  `SITE_URL` now drives canonical, OG and sitemap URLs (falling back to `http://localhost:3300`).
+
+### Version updates
+
+- `@scanscan/site` 1.15.4 → 1.16.0. Workspace crates and apps are unchanged.
+
 ## [1.15.6] - 2026-10-23
 
 ### Added

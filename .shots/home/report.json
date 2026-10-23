@@ -1,0 +1,250 @@
+{
+  "url": "http://127.0.0.1:4400/",
+  "errors": [],
+  "failed": [],
+  "desktop": {
+    "loadMs": 190,
+    "loaderMs": null,
+    "settledMs": 2456,
+    "vitals": {
+      "lcpMs": 144,
+      "lcpElement": "h1.hero__title",
+      "cls": 0
+    },
+    "height": 7544,
+    "overflowX": false,
+    "offenders": [],
+    "h1": [
+      "Where did the disk space go?"
+    ],
+    "smallTargets": [],
+    "glHidden": [],
+    "title": "scanscan: where did the disk space go?",
+    "glOn": false,
+    "scrollFps": {
+      "fps": 60,
+      "worstFrameMs": 17
+    },
+    "nav": {
+      "href": "/overview/",
+      "scrollYAfter": 0,
+      "title": "Overview | scanscan"
+    },
+    "idleMotion": true,
+    "idleAt": "top"
+  },
+  "mobile": {
+    "throttled": true,
+    "loadMs": 2359,
+    "loaderMs": null,
+    "settledMs": 7325,
+    "vitals": {
+      "lcpMs": 1108,
+      "lcpElement": "h1.hero__title",
+      "cls": 0
+    },
+    "height": 8955,
+    "overflowX": false,
+    "offenders": [],
+    "h1": [
+      "Where did the disk space go?"
+    ],
+    "smallTargets": [],
+    "glHidden": [],
+    "title": "scanscan: where did the disk space go?",
+    "glOn": false,
+    "scrollFps": {
+      "fps": 60,
+      "worstFrameMs": 17
+    }
+  },
+  "files": [
+    "C:\\dev\\scanscan\\.shots\\home\\d-00-firstpaint.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-01-hero.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-02-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-03-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-04-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-05-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-06-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-07-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-90-transition-a.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-90-transition-b.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-90-transition-c.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-91-after-nav.png",
+    "C:\\dev\\scanscan\\.shots\\home\\d-92-back.png",
+    "C:\\dev\\scanscan\\.shots\\home\\k-01-focus.png",
+    "C:\\dev\\scanscan\\.shots\\home\\k-02-focus.png",
+    "C:\\dev\\scanscan\\.shots\\home\\k-03-focus.png",
+    "C:\\dev\\scanscan\\.shots\\home\\k-04-focus.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-01-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-01-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-02-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-02-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-03-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-03-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-04-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-04-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-05-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-05-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-06-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-06-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-07-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-07-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-08-rest.png",
+    "C:\\dev\\scanscan\\.shots\\home\\h-08-hover.png",
+    "C:\\dev\\scanscan\\.shots\\home\\m-01-hero.png",
+    "C:\\dev\\scanscan\\.shots\\home\\m-02-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\m-03-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\m-04-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\m-05-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\m-06-scroll.png",
+    "C:\\dev\\scanscan\\.shots\\home\\r-01-hero.png",
+    "C:\\dev\\scanscan\\.shots\\home\\r-02-mid.png"
+  ],
+  "notes": [
+    "desktop FPS runs headless on a software GPU: treat it as a floor, not a measurement of real hardware",
+    "mobile runs at 4x CPU slowdown on slow 4G: mobile.vitals and mobile.scrollFps are the numbers that count",
+    "loadMs: ms from navigation to the load event, null if it had not fired after 30 s (desktop) or 60 s (phone); a heavy page takes long, while visitors see content at vitals.lcpMs. loaderMs: ms until the #loader ended, null when the page has none",
+    "settledMs: ms from navigation by which the first screen stopped changing, never before the fixed wait. null: still changing at the cap, either a long intro or continuous motion (a live shader, video); d-01-hero / m-01-hero tell which. reduced.moving: the screen was still changing 1.5 s after load with reduced motion on"
+  ],
+  "keyboard": {
+    "stops": [
+      "a \"Skip to content\"",
+      "a \"scanscan\"",
+      "a \"Why\"",
+      "a \"How\"",
+      "a \"Views\"",
+      "a \"Compare\"",
+      "a \"Docs\"",
+      "a \"GitHub\"",
+      "a \"Get started\"",
+      "a \"Run it with Docker\"",
+      "a \"See the views\"",
+      "button \"var 312.4 GB ↗\""
+    ],
+    "skipLinkFirst": true,
+    "noVisibleFocus": [],
+    "invisibleFocus": [],
+    "stuck": false
+  },
+  "hover": {
+    "targets": [
+      {
+        "shot": "h-01",
+        "label": "button \"var 312.4 GB\"",
+        "interactive": true,
+        "primary": true,
+        "react": "moves",
+        "changed": [
+          "clipPath",
+          "opacity",
+          "translate"
+        ]
+      },
+      {
+        "shot": "h-02",
+        "label": "button \"Treemap\"",
+        "interactive": true,
+        "primary": true,
+        "react": "moves",
+        "changed": [
+          "translate",
+          "transform"
+        ]
+      },
+      {
+        "shot": "h-03",
+        "label": "button \"Copy\"",
+        "interactive": true,
+        "primary": true,
+        "react": "moves",
+        "changed": [
+          "color",
+          "borderColor",
+          "textDecorationColor",
+          "transform"
+        ]
+      },
+      {
+        "shot": "h-04",
+        "label": "button \"Copy\"",
+        "interactive": true,
+        "primary": false,
+        "react": "moves",
+        "changed": [
+          "color",
+          "borderColor",
+          "textDecorationColor",
+          "transform"
+        ]
+      },
+      {
+        "shot": "h-05",
+        "label": "a \"Run it with Docker\"",
+        "interactive": true,
+        "primary": true,
+        "react": "moves",
+        "changed": [
+          "clipPath",
+          "translate"
+        ]
+      },
+      {
+        "shot": "h-06",
+        "label": "a \"See the views\"",
+        "interactive": true,
+        "primary": true,
+        "react": "moves",
+        "changed": [
+          "color",
+          "borderColor",
+          "textDecorationColor",
+          "clipPath"
+        ]
+      },
+      {
+        "shot": "h-07",
+        "label": "a \"Read the architecture\"",
+        "interactive": true,
+        "primary": true,
+        "react": "moves",
+        "changed": [
+          "color",
+          "borderColor",
+          "textDecorationColor",
+          "backgroundSize",
+          "opacity",
+          "translate"
+        ]
+      },
+      {
+        "shot": "h-08",
+        "label": "a \"Web UI guide\"",
+        "interactive": true,
+        "primary": true,
+        "react": "moves",
+        "changed": [
+          "color",
+          "borderColor",
+          "textDecorationColor",
+          "backgroundSize",
+          "opacity",
+          "translate"
+        ]
+      }
+    ],
+    "noHoverChange": [],
+    "colorOnly": [],
+    "covered": [],
+    "cursorFollower": false
+  },
+  "reduced": {
+    "hiddenText": 0,
+    "moving": false
+  },
+  "a11y": {
+    "violations": [],
+    "serious": 0,
+    "contrastNeedsReview": 63
+  }
+}

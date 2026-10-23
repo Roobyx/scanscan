@@ -1,0 +1,229 @@
+---
+import { containers } from "../../data/site.js";
+---
+
+<section class="docker section" id="docker">
+  <div class="container docker__grid">
+    <div class="docker__copy">
+      <h2 class="docker__title h2" data-split="lines">The biggest folders are inside containers.</h2>
+      <p class="docker__body body">
+        scanscan reads container, image and volume sizes from the Docker Engine API and maps mounts
+        onto the snapshot. A volume stops being a mystery number in the treemap.
+      </p>
+      <p class="docker__body body">
+        The socket is GET-only, through a proxy. The app never gets write access to Docker, and the
+        Docker views report unavailable when there is no socket. Everything else keeps working.
+      </p>
+      <div class="docker__links">
+        <span class="tag tag--accent">GET-only</span>
+        <a class="link" href="/docker/">Docker integration</a>
+      </div>
+    </div>
+
+    <div class="docker__card" aria-label="Sample container view">
+      <div class="docker__card-head">
+        <span class="mono">Containers</span>
+        <span class="tag">Sample</span>
+      </div>
+      <div class="docker__rows">
+        {
+          containers.map((container) => (
+            <div class="docker__row">
+              <div class="docker__id">
+                <span class="docker__name">{container.name}</span>
+                <span class="docker__image mono">{container.image}</span>
+              </div>
+              <div class="docker__size">
+                <span class="docker__bytes mono">{container.size}</span>
+                <span class="docker__bar">
+                  <span style={`width:${container.pct}%`} />
+                </span>
+              </div>
+              <div class="docker__mounts mono">{container.mounts}</div>
+              <div class="docker__meters mono">
+                <span>CPU {container.cpu}</span>
+                <span>MEM {container.mem}</span>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .docker__grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    align-items: center;
+  }
+
+  .docker__copy {
+    grid-column: 8 / span 5;
+    grid-row: 1;
+  }
+
+  .docker__card {
+    grid-column: 1 / span 6;
+    grid-row: 1;
+    overflow: clip;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+
+  .docker__title {
+    max-width: 14ch;
+  }
+
+  .docker__body {
+    margin-top: 1.15rem;
+  }
+
+  .docker__links {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    font-family: var(--f-mono);
+    font-size: 0.75rem;
+  }
+
+  .docker__links .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    padding-block: 0.3rem;
+  }
+
+  .docker__card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.65rem 0.85rem;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.6875rem;
+  }
+
+  .docker__row {
+    display: grid;
+    grid-template-columns: 1.3fr 0.9fr 1.6fr 0.9fr;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.8rem 0.85rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .docker__row:last-child {
+    border-bottom: 0;
+  }
+
+  .docker__id {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+
+  .docker__name {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  .docker__image {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.625rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .docker__size {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .docker__bytes {
+    color: var(--ink);
+    font-size: 0.75rem;
+    line-height: 1;
+  }
+
+  .docker__bar {
+    display: block;
+    width: 100%;
+    height: 3px;
+    background: var(--panel-2);
+  }
+
+  .docker__bar span {
+    display: block;
+    height: 100%;
+    background: var(--ok);
+  }
+
+  .docker__mounts {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.5625rem;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .docker__meters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    color: var(--muted);
+    font-size: 0.5625rem;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 1000px) {
+    .docker__copy,
+    .docker__card {
+      grid-column: 1 / -1;
+      grid-row: auto;
+    }
+
+    .docker__card {
+      order: 2;
+      margin-top: 2rem;
+    }
+
+    .docker__copy {
+      order: 1;
+    }
+
+    .docker__title {
+      max-width: 22ch;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .docker__row {
+      grid-template-columns: 1fr 0.9fr;
+      gap: 0.6rem 1rem;
+    }
+
+    .docker__mounts {
+      grid-column: 1 / -1;
+      white-space: normal;
+    }
+
+    .docker__meters {
+      flex-direction: row;
+      gap: 0.8rem;
+    }
+  }
+</style>

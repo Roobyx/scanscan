@@ -1,0 +1,139 @@
+---
+import Landing from "../layouts/Landing.astro";
+---
+
+<Landing
+  title="Page not found"
+  description="This path is not in the scanscan index. Return to the map or open the documentation."
+  noindex
+  compactFooter
+>
+  <section class="notfound">
+    <div class="container notfound__grid">
+      <div class="notfound__copy">
+        <p class="notfound__code mono">404</p>
+        <h1 class="notfound__title display">This path is not in the index.</h1>
+        <p class="notfound__lede">
+          The page you asked for is not in this snapshot. The map is still here, and the docs have
+          every view, command and endpoint.
+        </p>
+        <div class="notfound__actions">
+          <a class="btn btn--primary btn--lg" href="/" data-fill>
+            <span class="btn__fill" aria-hidden="true"></span>
+            <span>Back to the map</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="square"
+                stroke-width="1.5"
+                d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"></path>
+            </svg>
+          </a>
+          <a class="btn btn--ghost btn--lg" href="/overview/" data-fill>
+            <span class="btn__fill" aria-hidden="true"></span>
+            <span>Open the docs</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="notfound__map" aria-hidden="true">
+        <span style="--c:#4f8cff"></span>
+        <span style="--c:#3ddc97"></span>
+        <span class="notfound__gap"></span>
+        <span style="--c:#ffb454"></span>
+        <span style="--c:#b98cff"></span>
+        <span style="--c:#5ad1e6"></span>
+      </div>
+    </div>
+  </section>
+</Landing>
+
+<style>
+  .notfound {
+    padding-top: calc(var(--header-h) + clamp(4rem, 9vw, 8rem));
+    padding-bottom: clamp(2rem, 4vw, 3rem);
+  }
+
+  .notfound__grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--gutter);
+    align-items: center;
+  }
+
+  .notfound__copy {
+    grid-column: 1 / span 7;
+  }
+
+  .notfound__code {
+    color: var(--accent);
+    font-size: 0.75rem;
+  }
+
+  .notfound__title {
+    max-width: 13ch;
+    margin-top: 1rem;
+    font-size: clamp(2.8rem, 1.4rem + 4.6vw, 5.4rem);
+    letter-spacing: -0.05em;
+    line-height: 0.94;
+    margin-left: -0.04em;
+  }
+
+  .notfound__lede {
+    max-width: 46ch;
+    margin-top: 1.25rem;
+    color: var(--muted);
+    font-size: var(--t-m);
+    line-height: 1.5;
+  }
+
+  .notfound__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+
+  .notfound__map {
+    grid-column: 8 / span 5;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: 1fr;
+    gap: 6px;
+    aspect-ratio: 1.1;
+    border: 1px solid var(--line);
+    padding: 6px;
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+
+  .notfound__map span {
+    background: var(--c);
+    opacity: 0.9;
+  }
+
+  .notfound__map .notfound__gap {
+    border: 1px dashed var(--line-strong);
+    background: transparent;
+  }
+
+  @media (max-width: 900px) {
+    .notfound__copy,
+    .notfound__map {
+      grid-column: 1 / -1;
+    }
+
+    .notfound__map {
+      max-width: 18rem;
+      margin-top: 2.5rem;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .notfound__actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+</style>

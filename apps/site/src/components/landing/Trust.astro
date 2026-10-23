@@ -1,0 +1,96 @@
+---
+import { trust } from "../../data/site.js";
+---
+
+<section class="trust section--tight" aria-labelledby="trust-title">
+  <div class="container">
+    <h2 class="trust__title" id="trust-title">What it will not do.</h2>
+    <ul class="trust__list">
+      {
+        trust.map((item) => (
+          <li class="trust__item">
+            <h3 class="trust__item-title">{item.title}</h3>
+            <p class="trust__item-copy">{item.copy}</p>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="trust__note">No authentication in v1. Bind localhost or put it behind TLS.</p>
+    <a class="link trust__link" href="/security/">Security details</a>
+  </div>
+</section>
+
+<style>
+  .trust {
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .trust__title {
+    font-family: var(--f-display);
+    font-size: var(--t-l);
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+
+  .trust__list {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--gutter);
+    margin-top: clamp(1.75rem, 3vw, 2.5rem);
+  }
+
+  .trust__item {
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .trust__item-title {
+    color: var(--ink);
+    font-family: var(--f-display);
+    font-size: 1.0625rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .trust__item-copy {
+    margin-top: 0.5rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .trust__note {
+    margin-top: clamp(1.75rem, 3vw, 2.5rem);
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: 0.6875rem;
+    line-height: 1.6;
+  }
+
+  .trust__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    margin-top: 0.4rem;
+    padding-block: 0.3rem;
+    font-family: var(--f-mono);
+    font-size: 0.6875rem;
+  }
+
+  @media (max-width: 720px) {
+    .trust__list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 420px) {
+    .trust__list {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -1,0 +1,51 @@
+{
+  "url": "http://127.0.0.1:4400/",
+  "pages": [
+    {
+      "report": "home/report.json",
+      "mobile": {
+        "lcpMs": 1108,
+        "lcpElement": "h1.hero__title",
+        "cls": 0
+      },
+      "desktop": {
+        "lcpMs": 144,
+        "lcpElement": "h1.hero__title",
+        "cls": 0
+      },
+      "type": "landing",
+      "name": "home"
+    },
+    {
+      "report": "overview/report.json",
+      "mobile": {
+        "lcpMs": 1068,
+        "lcpElement": "p",
+        "cls": 0.001
+      },
+      "desktop": {
+        "lcpMs": 104,
+        "lcpElement": "p",
+        "cls": 0.003
+      },
+      "type": "docs",
+      "name": "overview"
+    },
+    {
+      "report": "404/report.json",
+      "mobile": {
+        "lcpMs": 892,
+        "lcpElement": "p.notfound__lede",
+        "cls": 0
+      },
+      "desktop": {
+        "lcpMs": 72,
+        "lcpElement": "h1.notfound__title",
+        "cls": 0
+      },
+      "type": "404",
+      "name": "404"
+    }
+  ],
+  "audit": "audit.txt"
+}
