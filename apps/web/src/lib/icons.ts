@@ -19,4 +19,5 @@ export type IconName =
   | "pie-chart"
   | "file"
   | "plug"
-  | "shield";
+  | "shield"
+  | "thermometer";

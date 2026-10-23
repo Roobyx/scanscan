@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { formatAgo, formatBytes, percent } from "./format.js";
+import { formatAgo, formatBytes, formatCount, percent } from "./format.js";
 
 describe("formatBytes", () => {
   test("handles zero and negatives", () => {
@@ -13,6 +13,16 @@ describe("formatBytes", () => {
     expect(formatBytes(1024)).toBe("1.0 KB");
     expect(formatBytes(1024 * 1024 * 3.5)).toBe("3.5 MB");
     expect(formatBytes(1024 ** 4)).toBe("1.0 TB");
+  });
+});
+
+describe("formatCount", () => {
+  test("keeps small counts exact and compacts large ones", () => {
+    expect(formatCount(0)).toBe("0");
+    expect(formatCount(999)).toBe("999");
+    expect(formatCount(1000)).toBe("1.0k");
+    expect(formatCount(1_500_000)).toBe("1.5M");
+    expect(formatCount(2_400_000_000)).toBe("2.4B");
   });
 });
 

@@ -73,6 +73,30 @@ describe("host drives", () => {
     expect(body.drives[0]?.path).toBe("/");
   });
 
+  test("reports inode usage alongside capacity", async () => {
+    const core = new StubCore(() =>
+      mountsOf([{ path: "/", containerPath: cwd, device: "1", fstype: "ext4" }]),
+    );
+    const body = await drivesFrom(core);
+    const stats = body.drives[0]?.stats;
+    expect(stats).toBeDefined();
+    if (stats?.inodesTotal !== undefined) {
+      expect(stats.inodesTotal).toBeGreaterThan(0);
+      expect(stats.inodesFree ?? 0).toBeLessThanOrEqual(stats.inodesTotal);
+      expect((stats.inodesUsed ?? 0) + (stats.inodesFree ?? 0)).toBe(stats.inodesTotal);
+    }
+  });
+
+  test("fills the filesystem type and source from the mount table", async () => {
+    const core = new StubCore(() =>
+      mountsOf([{ path: "/", containerPath: cwd, device: "", fstype: "" }]),
+    );
+    const body = await drivesFrom(core);
+    const drive = body.drives[0];
+    expect((drive?.fstype.length ?? 0) > 0).toBe(true);
+    expect((drive?.device.length ?? 0) > 0).toBe(true);
+  });
+
   test("sorts drives by host path", async () => {
     const core = new StubCore(() =>
       mountsOf([

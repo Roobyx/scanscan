@@ -2,6 +2,24 @@
 
 All notable changes to scanscan are documented here. Newest entries first.
 
+## [1.15.6] - 2026-10-23
+
+### Added
+
+- **The Drives dashboard now shows hardware and inode counters.** Each card gains a
+  Usage/Details switch; Details lists the kernel device, model, serial, SSD/HDD, bus,
+  filesystem, inode usage and cumulative read/write/busy counters, all read from sysfs and
+  `/proc/diskstats` with no extra privileges and no host `/dev` mount.
+- **Drive temperature appears on every card** when the host binds a hwmon sensor to the
+  disk, colour-coded above 55 °C and 70 °C.
+- **Filesystem type and source device are filled in** for discovered mounts from the
+  container's mount table, so the existing fstype pill is no longer empty.
+
+### Version updates
+
+- `@scanscan/web` and `@scanscan/server` 1.15.5 → 1.15.6; `@scanscan/api-types` 1.13.3 →
+  1.13.4.
+
 ## [1.15.5] - 2026-10-21
 
 ### Fixed

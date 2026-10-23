@@ -53,7 +53,7 @@ export const openApiDocument = {
     "/host/drives": {
       get: {
         tags: ["core"],
-        summary: "Host drives with capacity and used/free bytes (dashboard cards)",
+        summary: "Host drives with capacity, inode and hardware counters (dashboard cards)",
         responses: ok,
       },
     },

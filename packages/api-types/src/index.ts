@@ -228,6 +228,42 @@ export interface HostMountsResponse {
   mounts: HostMount[];
 }
 
+/**
+ * Read-only counters for the block device backing a drive.
+ *
+ * Every field is optional: sysfs exposes different subsets per driver, and a
+ * container may not see block devices at all (virtio, or a non-Linux host).
+ * I/O counters are cumulative since boot.
+ */
+export interface DriveStats {
+  /** Kernel block device, e.g. `sda`, `nvme0n1`, `dm-0`. */
+  kernelName?: string;
+  model?: string;
+  vendor?: string;
+  serial?: string;
+  /** Best-effort bus label: `nvme`, `sata`, `usb`, `virtio`, … */
+  transport?: string;
+  /** `true` for spinning disks, `false` for solid-state. */
+  rotational?: boolean;
+  logicalBlockSize?: number;
+  physicalBlockSize?: number;
+  /** Physical disks underneath a device-mapper or RAID volume. */
+  backingDevices?: string[];
+  /** Degrees Celsius from the host hwmon sensor, when one is bound. */
+  temperatureC?: number;
+  inodesTotal?: number;
+  inodesFree?: number;
+  inodesUsed?: number;
+  readsCompleted?: number;
+  writesCompleted?: number;
+  bytesRead?: number;
+  bytesWritten?: number;
+  ioInProgress?: number;
+  busyMs?: number;
+  /** Share of wall time spent doing I/O since boot. */
+  busyPct?: number;
+}
+
 export interface DriveInfo {
   /** Mountpoint as seen on the host (e.g. `/`, `/mnt/data`). */
   path: string;
@@ -239,6 +275,8 @@ export interface DriveInfo {
   totalBytes?: number;
   freeBytes?: number;
   usedBytes?: number;
+  /** Hardware and inode counters, when the host exposes them. */
+  stats?: DriveStats;
 }
 
 export interface DrivesResponse {
